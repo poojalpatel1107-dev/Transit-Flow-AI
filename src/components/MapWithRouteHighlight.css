@@ -1,0 +1,95 @@
+.map-container-highlight {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.map-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 18px;
+  text-align: center;
+}
+
+.route-info-overlay {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+}
+
+.route-badge {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 12px 20px;
+  border-radius: 25px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  font-weight: 600;
+  animation: slideDown 0.4s ease-out;
+}
+
+.route-label {
+  color: #2196F3;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.route-distance {
+  background: linear-gradient(135deg, #2196F3, #1976D2);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.popup-content {
+  padding: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.popup-content strong {
+  display: block;
+  margin: 4px 0;
+  color: #2196F3;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Leaflet customization */
+.leaflet-control-zoom {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out {
+  background-color: transparent !important;
+  color: #2196F3 !important;
+  font-weight: bold !important;
+  border: none !important;
+}
+
+.leaflet-control-zoom-in:hover,
+.leaflet-control-zoom-out:hover {
+  background-color: #f5f5f5 !important;
+}

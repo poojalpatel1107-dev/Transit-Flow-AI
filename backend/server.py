@@ -30,6 +30,7 @@ from janmarg_config import (
     get_traffic_factor as get_traffic_factor_config,
     get_crowd_level
 )
+from ai_agent import transit_ai
 
 app = FastAPI(
     title="Transit Flow AI Backend",
@@ -439,7 +440,7 @@ def _calculate_direct_path(route_id, origin_idx, dest_idx, origin, destination, 
 
 
 def _find_transfer_route(origin, destination, routes_map):
-    """Find multi-route transfer path"""
+    """Find multi-route transfer path (supports up to 2 transfers for multi-hop journeys)"""
     
     # Find all routes containing origin and destination
     routes_with_origin = []
@@ -456,7 +457,7 @@ def _find_transfer_route(origin, destination, routes_map):
         if dest_idx != -1:
             routes_with_dest.append({'route_id': route_id, 'index': dest_idx})
     
-    # Try single transfer (origin_route → transfer_station → dest_route)
+    # ========== TRY SINGLE TRANSFER (origin_route → transfer_station → dest_route) ==========
     for origin_route in routes_with_origin:
         for dest_route in routes_with_dest:
             if origin_route['route_id'] == dest_route['route_id']:
@@ -510,6 +511,89 @@ def _find_transfer_route(origin, destination, routes_map):
                         "timestamp": datetime.now().isoformat()
                     }
     
+    # ========== TRY DOUBLE TRANSFER (origin_route → mid1 → mid_route → mid2 → dest_route) ==========
+    # This handles cases like: Route 1 → Route 15 → Route 7
+    for origin_route in routes_with_origin:
+        origin_stops = routes_map[origin_route['route_id']]['stops']
+        
+        # Find all routes that share a station with origin_route
+        for mid_route_id, mid_route_data in routes_map.items():
+            if mid_route_id == origin_route['route_id']:
+                continue
+                
+            mid_stops = mid_route_data['stops']
+            
+            # Find common station between origin_route and mid_route
+            common_1 = [s for s in origin_stops if s in mid_stops and s != origin and s != destination]
+            
+            if not common_1:
+                continue
+            
+            transfer_1 = common_1[0]
+            transfer_1_idx_origin = origin_stops.index(transfer_1)
+            transfer_1_idx_mid = mid_stops.index(transfer_1)
+            
+            # Now try to reach destination through another route
+            for dest_route in routes_with_dest:
+                if dest_route['route_id'] in [origin_route['route_id'], mid_route_id]:
+                    continue
+                
+                dest_stops = routes_map[dest_route['route_id']]['stops']
+                
+                # Find common station between mid_route and dest_route
+                common_2 = [s for s in mid_stops if s in dest_stops and s != origin and s != destination]
+                
+                if not common_2:
+                    continue
+                
+                transfer_2 = common_2[0]
+                transfer_2_idx_mid = mid_stops.index(transfer_2)
+                transfer_2_idx_dest = dest_stops.index(transfer_2)
+                
+                # Calculate all three segments
+                path1 = _calculate_segment(
+                    origin_route['route_id'],
+                    origin_route['index'],
+                    transfer_1_idx_origin,
+                    routes_map
+                )
+                
+                path2 = _calculate_segment(
+                    mid_route_id,
+                    transfer_1_idx_mid,
+                    transfer_2_idx_mid,
+                    routes_map
+                )
+                
+                path3 = _calculate_segment(
+                    dest_route['route_id'],
+                    transfer_2_idx_dest,
+                    dest_route['index'],
+                    routes_map
+                )
+                
+                if path1 and path2 and path3:
+                    # Concatenate all three paths, removing duplicate transfer stations
+                    full_path = path1[:-1] + path2[:-1] + path3
+                    distance_km = round((len(full_path) * 0.3) / 10, 2)
+                    eta_minutes = int((distance_km / COMMERCIAL_SPEED_KMH) * 60 + 360)  # +6min for two transfers
+                    
+                    return {
+                        "path": full_path,
+                        "total_nodes": len(full_path),
+                        "total_distance_km": distance_km,
+                        "eta_minutes": eta_minutes,
+                        "transfer": True,
+                        "route_1": origin_route['route_id'],
+                        "route_2": mid_route_id,
+                        "route_3": dest_route['route_id'],
+                        "transfer_station_1": transfer_1,
+                        "transfer_station_2": transfer_2,
+                        "origin": origin,
+                        "destination": destination,
+                        "timestamp": datetime.now().isoformat()
+                    }
+    
     return None
 
 
@@ -531,6 +615,129 @@ def _calculate_segment(route_id, start_station_idx, end_station_idx, routes_map)
         return full_trace[start_idx : end_idx + 1]
     else:
         return full_trace[end_idx : start_idx + 1][::-1]
+
+
+# ============================================================================
+# 🤖 AI AGENT ENDPOINTS - Smart Transit Intelligence
+# ============================================================================
+
+@app.get("/api/nearest-bus")
+def nearest_bus(
+    user_lat: float,
+    user_lng: float,
+    route_id: str = None
+):
+    """
+    Find the nearest bus to user's current location
+    
+    Args:
+        user_lat: User's latitude
+        user_lng: User's longitude
+        route_id: Optional - filter to specific route
+    
+    Returns:
+        Nearest bus info with distance and ETA
+    """
+    return transit_ai.get_nearest_bus(user_lat, user_lng, route_id)
+
+
+@app.get("/api/live-bus-position")
+def live_bus_position(
+    route_id: str,
+    bus_id: str,
+    progress_percent: float = 0
+):
+    """
+    Get real-time position of a bus moving along route
+    
+    Returns:
+        Current GPS location, speed, and progress
+    """
+    return transit_ai.get_live_bus_position(route_id, bus_id, progress_percent)
+
+
+@app.post("/api/transfer-recommendations")
+def transfer_recommendations(request_data: dict):
+    """
+    Get smart recommendations for transfers and segment travel
+    
+    Args:
+        origin: Starting station
+        destination: Ending station
+    
+    Returns:
+        List of intelligent transfer recommendations
+    """
+    origin = request_data.get("origin")
+    destination = request_data.get("destination")
+    
+    return transit_ai.get_transfer_recommendations(origin, destination)
+
+
+@app.get("/api/transfer-wait-time")
+def transfer_wait_time(
+    transfer_station: str,
+    from_route: str,
+    to_route: str
+):
+    """
+    Predict waiting time at a transfer station
+    
+    Returns:
+        Wait time estimate with confidence and amenities info
+    """
+    return transit_ai.predict_transfer_wait_time(transfer_station, from_route, to_route)
+
+
+@app.get("/api/traffic-aware-eta")
+def traffic_aware_eta(
+    route_id: str,
+    origin_idx: int = 0,
+    destination_idx: int = 10,
+    distance_km: float = None
+):
+    """
+    Get traffic-aware ETA with dynamic adjustments
+    
+    Returns:
+        ETA with confidence score and traffic factors
+    """
+    return transit_ai.get_traffic_aware_eta(route_id, origin_idx, destination_idx, distance_km)
+
+
+@app.get("/api/smart-boarding-time")
+def smart_boarding_time(
+    route_id: str,
+    origin_station: str
+):
+    """
+    Get smart recommendation for when to board
+    
+    Returns:
+        Recommendation to catch next bus or wait
+    """
+    return transit_ai.get_smart_boarding_time(route_id, origin_station)
+
+
+@app.post("/api/smart-recommendations")
+def smart_recommendations(request_data: dict):
+    """
+    Get holistic smart recommendations for entire journey
+    
+    Args:
+        origin: Starting station
+        destination: Ending station
+        journey: Optional - complete journey data
+    
+    Returns:
+        Array of prioritized smart recommendations
+    """
+    origin = request_data.get("origin")
+    destination = request_data.get("destination")
+    journey = request_data.get("journey")
+    
+    return transit_ai.get_smart_recommendations(origin, destination, journey)
+
 
 if __name__ == "__main__":
     import uvicorn

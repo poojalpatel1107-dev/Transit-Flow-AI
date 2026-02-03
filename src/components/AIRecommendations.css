@@ -1,0 +1,149 @@
+.ai-recommendations {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 245, 250, 0.98) 100%);
+  border-radius: 15px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+  animation: slideUp 0.4s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.recs-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.recs-icon {
+  font-size: 22px;
+}
+
+.recs-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.recs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rec-card {
+  border-left: 4px solid #2196F3;
+  background: rgba(33, 150, 243, 0.05);
+  padding: 14px;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.rec-card:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.15);
+}
+
+.rec-priority {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.priority-badge {
+  color: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.rec-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rec-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+}
+
+.rec-icon {
+  font-size: 18px;
+}
+
+.rec-description {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+  line-height: 1.4;
+}
+
+.rec-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #2196F3;
+  font-weight: 600;
+  background: white;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #E3F2FD;
+}
+
+.action-arrow {
+  font-weight: 700;
+}
+
+.rec-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.recommendations-loading {
+  background: rgba(33, 150, 243, 0.1);
+  border: 2px dashed #2196F3;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  color: #2196F3;
+  font-weight: 600;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
