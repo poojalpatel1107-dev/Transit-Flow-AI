@@ -1,6 +1,40 @@
-# Transit Flow AI - Full-Stack Application
+# 🚌 Transit Flow AI - Smart Real-time Transit Platform
+
+**Advanced AI-powered bus transit application with real-time tracking, smart recommendations, and intelligent route planning.**
+
+✨ **v2.0 - Now with 8 game-changing smart features!**
 
 Real-time BRTS tracking system with AI-powered predictions using React + Python FastAPI.
+
+## 🎯 What's New in v2.0
+
+### 🌟 8 Major Smart Features
+1. **Smart Route Highlighting** - Only your selected route on map
+2. **Quick Insights Panel** - Timetable + transfer details
+3. **Live Progress Tracker** - Uber-style real-time tracking
+4. **Nearest Bus Detector** - Find closest bus with ETA
+5. **AI Recommendations** - Smart suggestions for your journey
+6. **Backend AI Agent** - Intelligent predictions & analysis
+7. **State Management** - Real-time updates with Zustand
+8. **Professional UI/UX** - Animated, responsive interface
+
+### 🔧 What It Does
+- Shows **ONLY your selected route** on the map (no clutter)
+- Displays **transfer stations with amenities & wait times**
+- Tracks **bus movement in real-time** (like Uber!)
+- Generates **AI-powered smart recommendations**
+- Handles **multi-hop routes** automatically
+- Shows **occupancy levels** with comfort scoring
+- Works on **mobile, tablet, desktop**
+- **Fully responsive & production-ready**
+
+### 📊 Quick Stats
+- **6 new React components**
+- **7 new smart API endpoints**
+- **1 AI Agent module** (intelligent predictions)
+- **1 Zustand store** (centralized state)
+- **2500+ lines of code** added
+- **100% feature complete**
 
 ## 🏗️ Architecture
 

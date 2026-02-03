@@ -5,6 +5,14 @@ export default function NearestBusDetector({ userLocation }) {
   const [nearestBus, setNearestBus] = useState(null)
   const [loading, setLoading] = useState(false)
 
+  const handleGoToStop = () => {
+    if (!nearestBus?.location) return
+    const [destLat, destLng] = nearestBus.location
+    const origin = userLocation ? `&origin=${userLocation[0]},${userLocation[1]}` : ''
+    const url = `https://www.google.com/maps/dir/?api=1${origin}&destination=${destLat},${destLng}&travelmode=walking`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   useEffect(() => {
     if (!userLocation) return
 
@@ -50,6 +58,13 @@ export default function NearestBusDetector({ userLocation }) {
             </span>
           </div>
 
+          {nearestBus.station_name && (
+            <div className="info-row">
+              <span className="label">Nearest Stop</span>
+              <span className="value">{nearestBus.station_name}</span>
+            </div>
+          )}
+
           <div className="info-row">
             <span className="label">Distance</span>
             <span className="value">{nearestBus.distance_km} km away</span>
@@ -77,7 +92,12 @@ export default function NearestBusDetector({ userLocation }) {
           </div>
         </div>
 
-        <button className="goto-stop-btn">
+        <button
+          className="goto-stop-btn"
+          onClick={handleGoToStop}
+          disabled={!nearestBus?.location}
+          title={!nearestBus?.location ? 'Location unavailable' : 'Open directions'}
+        >
           <span>📍</span> Go to Stop
         </button>
       </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { MapContainer, TileLayer, Polyline, Marker, Popup, Circle } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import useJourneyStore from '../store/useJourneyStore'
 import './MapWithRouteHighlight.css'
@@ -22,8 +22,9 @@ export default function MapWithRouteHighlight() {
   const { journey, currentBusLocation, transferStations } = useJourneyStore()
   const [mapCenter, setMapCenter] = useState([23.03, 72.53])
   const [mapZoom, setMapZoom] = useState(13)
+  const [routePath, setRoutePath] = useState([])
 
-  // Calculate map center from route
+  // Calculate map center and route path from journey
   useEffect(() => {
     if (journey && journey.path && journey.path.length > 0) {
       const latSum = journey.path.reduce((sum, coord) => sum + coord[0], 0)
@@ -34,19 +35,32 @@ export default function MapWithRouteHighlight() {
       ]
       setMapCenter(newCenter)
       setMapZoom(14)
+      setRoutePath(journey.path)
     }
   }, [journey])
 
-  if (!journey || !journey.path) {
-    return (
-      <div className="map-placeholder">
-        <p>Select a route to view on map</p>
-      </div>
-    )
-  }
+  const hasRoute = Boolean(journey && journey.path && journey.path.length > 0)
+  const startPoint = routePath[0] || (journey?.path ? journey.path[0] : null)
+  const endPoint = routePath[routePath.length - 1] || (journey?.path ? journey.path[journey.path.length - 1] : null)
 
-  const startPoint = journey.path[0]
-  const endPoint = journey.path[journey.path.length - 1]
+  const MapViewUpdater = () => {
+    const map = useMap()
+
+    useEffect(() => {
+      if (routePath && routePath.length > 1) {
+        const bounds = L.latLngBounds(routePath)
+        map.fitBounds(bounds, { padding: [30, 30] })
+      }
+    }, [routePath, map])
+
+    useEffect(() => {
+      if (currentBusLocation) {
+        map.panTo(currentBusLocation, { animate: true, duration: 0.5 })
+      }
+    }, [currentBusLocation, map])
+
+    return null
+  }
 
   return (
     <div className="map-container-highlight">
@@ -55,42 +69,48 @@ export default function MapWithRouteHighlight() {
         zoom={mapZoom}
         style={{ width: '100%', height: '100%' }}
       >
+        <MapViewUpdater />
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; OpenStreetMap contributors'
         />
 
-        {/* Main route path - only selected route */}
-        <Polyline
-          positions={journey.path}
-          color="#2196F3"
-          weight={4}
-          opacity={0.9}
-          dashArray="5, 5"
-        />
+        {/* Main route path - follows actual road geometry */}
+        {hasRoute && (routePath?.length || journey?.path?.length) ? (
+          <Polyline
+            positions={routePath && routePath.length > 0 ? routePath : journey.path}
+            color="#2196F3"
+            weight={5}
+            opacity={0.85}
+          />
+        ) : null}
 
         {/* Start point */}
-        <Marker position={startPoint} icon={startIcon}>
-          <Popup>
-            <div className="popup-content">
-              <strong>📍 Start</strong><br />
-              {journey.origin}
-            </div>
-          </Popup>
-        </Marker>
+        {hasRoute && startPoint ? (
+          <Marker position={startPoint} icon={startIcon}>
+            <Popup>
+              <div className="popup-content">
+                <strong>📍 Start</strong><br />
+                {journey.origin}
+              </div>
+            </Popup>
+          </Marker>
+        ) : null}
 
         {/* End point */}
-        <Marker position={endPoint} icon={endIcon}>
-          <Popup>
-            <div className="popup-content">
-              <strong>🎯 Destination</strong><br />
-              {journey.destination}
-            </div>
-          </Popup>
-        </Marker>
+        {hasRoute && endPoint ? (
+          <Marker position={endPoint} icon={endIcon}>
+            <Popup>
+              <div className="popup-content">
+                <strong>🎯 Destination</strong><br />
+                {journey.destination}
+              </div>
+            </Popup>
+          </Marker>
+        ) : null}
 
         {/* Transfer stations */}
-        {transferStations && transferStations.map((transfer, idx) => (
+        {hasRoute && transferStations && transferStations.map((transfer, idx) => (
           <Marker
             key={idx}
             position={transfer.location || [
@@ -134,16 +154,24 @@ export default function MapWithRouteHighlight() {
       </MapContainer>
 
       {/* Route info overlay */}
-      <div className="route-info-overlay">
-        <div className="route-badge">
-          <span className="route-label">
-            {journey.transfer ? `Route ${journey.route_1} → ${journey.route_2}${journey.route_3 ? ` → ${journey.route_3}` : ''}` : `Route ${journey.route_id}`}
-          </span>
-          <span className="route-distance">
-            {journey.total_distance_km} km
-          </span>
+      {hasRoute ? (
+        <div className="route-info-overlay">
+          <div className="route-badge">
+            <span className="route-label">
+              {journey.transfer ? `Route ${journey.route_1} → ${journey.route_2}${journey.route_3 ? ` → ${journey.route_3}` : ''}` : `Route ${journey.route_id}`}
+            </span>
+            <span className="route-distance">
+              {journey.total_distance_km} km
+            </span>
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {!hasRoute ? (
+        <div className="map-placeholder-overlay">
+          <p>🗺️ Select a route to view on map</p>
+        </div>
+      ) : null}
     </div>
   )
 }

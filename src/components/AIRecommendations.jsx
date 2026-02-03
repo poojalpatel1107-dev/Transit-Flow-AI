@@ -4,12 +4,14 @@ import './AIRecommendations.css'
 export default function AIRecommendations({ origin, destination }) {
   const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!origin || !destination) return
 
     const fetchRecommendations = async () => {
       setLoading(true)
+      setError('')
       try {
         const response = await fetch('http://localhost:8000/api/smart-recommendations', {
           method: 'POST',
@@ -20,6 +22,7 @@ export default function AIRecommendations({ origin, destination }) {
         setRecommendations(data)
       } catch (error) {
         console.error('Error fetching recommendations:', error)
+        setError('Unable to load recommendations. Try again.')
       } finally {
         setLoading(false)
       }
@@ -28,21 +31,12 @@ export default function AIRecommendations({ origin, destination }) {
     fetchRecommendations()
   }, [origin, destination])
 
-  const getPriorityColor = (priority) => {
+  const getPriorityClass = (priority) => {
     switch (priority) {
-      case 'HIGH': return '#FF6B6B'
-      case 'MEDIUM': return '#FFC107'
-      case 'LOW': return '#2196F3'
-      default: return '#999'
-    }
-  }
-
-  const getPriorityBgColor = (priority) => {
-    switch (priority) {
-      case 'HIGH': return 'rgba(255, 107, 107, 0.1)'
-      case 'MEDIUM': return 'rgba(255, 193, 7, 0.1)'
-      case 'LOW': return 'rgba(33, 150, 243, 0.1)'
-      default: return 'rgba(0, 0, 0, 0.05)'
+      case 'HIGH': return 'priority-high'
+      case 'MEDIUM': return 'priority-medium'
+      case 'LOW': return 'priority-low'
+      default: return 'priority-default'
     }
   }
 
@@ -50,31 +44,48 @@ export default function AIRecommendations({ origin, destination }) {
     return <div className="recommendations-loading">Loading smart recommendations...</div>
   }
 
+  if (error) {
+    return <div className="recommendations-loading">{error}</div>
+  }
+
   if (recommendations.length === 0) {
-    return null
+    return (
+      <div className="ai-recommendations">
+        <div className="recs-header">
+          <span className="recs-icon">🤖</span>
+          <div className="recs-title">
+            <h3>Smart Recommendations</h3>
+            <p className="recs-subtitle">For {origin} → {destination}</p>
+          </div>
+        </div>
+        <div className="recs-empty">No recommendations available yet.</div>
+      </div>
+    )
   }
 
   return (
     <div className="ai-recommendations">
       <div className="recs-header">
         <span className="recs-icon">🤖</span>
-        <h3>Smart Recommendations</h3>
+        <div className="recs-title">
+          <h3>Smart Recommendations</h3>
+          <p className="recs-subtitle">For {origin} → {destination}</p>
+        </div>
       </div>
 
       <div className="recs-list">
         {recommendations.map((rec, idx) => (
           <div
             key={idx}
-            className="rec-card"
-            style={{
-              borderLeftColor: getPriorityColor(rec.priority),
-              background: getPriorityBgColor(rec.priority)
-            }}
+            className={`rec-card ${getPriorityClass(rec.priority)}`}
           >
             <div className="rec-priority">
-              <span className="priority-badge" style={{ background: getPriorityColor(rec.priority) }}>
+              <span className={`priority-badge ${getPriorityClass(rec.priority)}`}>
                 {rec.priority}
               </span>
+              {rec.confidence && (
+                <span className="confidence-badge">{rec.confidence}% confidence</span>
+              )}
             </div>
 
             <div className="rec-content">
@@ -87,19 +98,15 @@ export default function AIRecommendations({ origin, destination }) {
               {rec.action && (
                 <div className="rec-action">
                   <span className="action-arrow">→</span>
-                  {rec.action}
+                  <span className="action-text">{rec.action}</span>
                 </div>
               )}
 
-              {rec.eta && (
+              {(rec.eta || rec.total_time || rec.wait_minutes) && (
                 <div className="rec-meta">
-                  <span className="meta-item">⏱️ {rec.eta} min</span>
-                </div>
-              )}
-
-              {rec.total_time && (
-                <div className="rec-meta">
-                  <span className="meta-item">⏳ {rec.total_time}</span>
+                  {rec.eta && <span className="meta-item">⏱️ {rec.eta} min</span>}
+                  {rec.total_time && <span className="meta-item">⏳ {rec.total_time}</span>}
+                  {rec.wait_minutes && <span className="meta-item">🕒 {rec.wait_minutes} min wait</span>}
                 </div>
               )}
             </div>

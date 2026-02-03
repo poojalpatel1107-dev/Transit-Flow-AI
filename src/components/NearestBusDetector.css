@@ -1,9 +1,15 @@
 .nearest-bus-detector {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 245, 250, 0.98) 100%);
-  border-radius: 15px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  padding: 16px;
-  animation: slideInRight 0.4s ease-out;
+  background: rgba(15, 23, 42, 0.8);
+  border-radius: 16px;
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.45);
+  padding: 14px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  animation: slideInRight 0.3s ease-out;
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  color: var(--text);
 }
 
 @keyframes slideInRight {
@@ -20,10 +26,10 @@
 .bus-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid #f0f0f0;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
 }
 
 .bus-icon {
@@ -38,18 +44,18 @@
 
 .bus-title {
   font-weight: 700;
-  color: #333;
+  color: var(--text);
   font-size: 14px;
   flex: 1;
 }
 
 .refresh-badge {
-  background: linear-gradient(135deg, #FF6B6B, #EE5A52);
-  color: white;
+  background: linear-gradient(135deg, #f43f5e, #f97316);
+  color: #1f0a0a;
   padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 700;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
   animation: pulse 2s infinite;
 }
 
@@ -75,42 +81,44 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  font-size: 13px;
+  background: rgba(2, 6, 23, 0.6);
+  border-radius: 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
 }
 
 .label {
-  color: #999;
+  color: var(--muted);
   font-weight: 600;
   text-transform: uppercase;
 }
 
 .value {
-  color: #333;
+  color: var(--text);
   font-weight: 700;
 }
 
 .value.highlight {
-  color: #FF6B6B;
-  font-size: 14px;
+  color: #f87171;
+  font-size: 13px;
 }
 
 .route-badge {
-  background: linear-gradient(135deg, #2196F3, #1976D2);
-  color: white;
+  background: linear-gradient(135deg, rgba(110, 231, 255, 0.9), rgba(124, 58, 237, 0.9));
+  color: #0b1222;
   padding: 4px 12px;
-  border-radius: 6px;
-  font-weight: 700;
+  border-radius: 999px;
+  font-weight: 800;
 }
 
 .occupancy-bar {
   flex: 1;
-  background: #e0e0e0;
-  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 8px;
   overflow: hidden;
-  height: 20px;
+  height: 18px;
   position: relative;
+  border: 1px solid var(--border);
 }
 
 .occupancy-fill {
@@ -135,10 +143,11 @@
   align-items: center;
   gap: 8px;
   padding: 8px;
-  background: #E3F2FD;
-  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 10px;
   font-size: 12px;
-  color: #1976D2;
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
 .status-indicator {
@@ -157,14 +166,14 @@
 }
 
 .goto-stop-btn {
-  background: linear-gradient(135deg, #4CAF50, #45a049);
-  color: white;
+  background: linear-gradient(135deg, #22c55e, #14b8a6);
+  color: #032f1b;
   border: none;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   font-weight: 700;
-  font-size: 13px;
+  font-size: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -174,5 +183,5 @@
 
 .goto-stop-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+  box-shadow: 0 10px 18px rgba(34, 197, 94, 0.35);
 }

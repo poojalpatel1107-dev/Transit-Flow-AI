@@ -84,14 +84,15 @@ export default function QuickInsightsPanel({ onStartTracking }) {
   }
 
   const renderTransfers = () => {
+    const transferCount = transferStations ? transferStations.length : 0
     return (
       <div className="transfers-panel">
         <div className="panel-header">
           <h3>🔄 Transfer Stations</h3>
-          <span className="transfer-count">{transferStations.length} transfers</span>
+          <span className="transfer-count">{transferCount} transfers</span>
         </div>
 
-        {transferStations && transferStations.length > 0 ? (
+        {transferCount > 0 ? (
           <div className="transfers-list">
             {transferStations.map((transfer, idx) => (
               <div key={idx} className="transfer-card">

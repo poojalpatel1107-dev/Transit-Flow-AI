@@ -6,11 +6,13 @@ import QuickInsightsPanel from './components/QuickInsightsPanel'
 import LiveProgressTracker from './components/LiveProgressTracker'
 import NearestBusDetector from './components/NearestBusDetector'
 import AIRecommendations from './components/AIRecommendations'
+import JanmargChat from './components/JanmargChat'
 import useJourneyStore from './store/useJourneyStore'
 
 export default function AppEnhanced() {
   const [userLocation, setUserLocation] = useState([23.027159, 72.508525]) // Default: ISKCON area
   const [isLoadingRoute, setIsLoadingRoute] = useState(false)
+  const [rightTab, setRightTab] = useState('nearest')
 
   // Get store state
   const journey = useJourneyStore(state => state.journey)
@@ -58,45 +60,53 @@ export default function AppEnhanced() {
       if (response.ok) {
         const data = await response.json()
         
-        // Add segments info for timetable
-        const segments = []
-        if (data.transfer) {
-          // Multi-hop journey
-          segments.push({
-            route_id: data.route_1,
-            from_station: data.origin,
-            to_station: data.transfer_station_1 || 'Transfer Point',
-            distance_km: (data.total_distance_km / 3).toFixed(1),
-            duration_minutes: Math.round(data.eta_minutes / 3)
-          })
-          if (data.route_2) {
-            segments.push({
-              route_id: data.route_2,
-              from_station: data.transfer_station_1 || 'Transfer Point',
-              to_station: data.transfer_station_2 || 'Transfer Point 2',
-              distance_km: (data.total_distance_km / 3).toFixed(1),
-              duration_minutes: Math.round(data.eta_minutes / 3)
-            })
-          }
-          if (data.route_3) {
-            segments.push({
-              route_id: data.route_3,
-              from_station: data.transfer_station_2 || 'Transfer Point 2',
-              to_station: data.destination,
-              distance_km: (data.total_distance_km / 3).toFixed(1),
-              duration_minutes: Math.round(data.eta_minutes / 3)
-            })
-          }
-        } else {
-          // Single route
-          segments.push({
-            route_id: data.route_id,
-            from_station: data.origin,
-            to_station: data.destination,
-            distance_km: data.total_distance_km,
-            duration_minutes: data.eta_minutes
-          })
-        }
+        // Add segments info for timetable (prefer backend-provided segments)
+        const segments = Array.isArray(data.segments) && data.segments.length > 0
+          ? data.segments
+          : (() => {
+              const fallback = []
+              if (data.transfer) {
+                const transfer1 = data.transfer_station_1 || data.transfer_station || 'Transfer Point'
+                const transfer2 = data.transfer_station_2 || 'Transfer Point 2'
+
+                fallback.push({
+                  route_id: data.route_1,
+                  from_station: data.origin,
+                  to_station: transfer1,
+                  distance_km: Number((data.total_distance_km / (data.route_3 ? 3 : 2)).toFixed(1)),
+                  duration_minutes: Math.round(data.eta_minutes / (data.route_3 ? 3 : 2))
+                })
+
+                if (data.route_2) {
+                  fallback.push({
+                    route_id: data.route_2,
+                    from_station: transfer1,
+                    to_station: data.route_3 ? transfer2 : data.destination,
+                    distance_km: Number((data.total_distance_km / (data.route_3 ? 3 : 2)).toFixed(1)),
+                    duration_minutes: Math.round(data.eta_minutes / (data.route_3 ? 3 : 2))
+                  })
+                }
+
+                if (data.route_3) {
+                  fallback.push({
+                    route_id: data.route_3,
+                    from_station: transfer2,
+                    to_station: data.destination,
+                    distance_km: Number((data.total_distance_km / 3).toFixed(1)),
+                    duration_minutes: Math.round(data.eta_minutes / 3)
+                  })
+                }
+              } else {
+                fallback.push({
+                  route_id: data.route_id,
+                  from_station: data.origin,
+                  to_station: data.destination,
+                  distance_km: data.total_distance_km,
+                  duration_minutes: data.eta_minutes
+                })
+              }
+              return fallback
+            })()
 
         data.segments = segments
 
@@ -105,21 +115,44 @@ export default function AppEnhanced() {
         // Set transfer stations
         const transfers = []
         if (data.transfer) {
-          if (data.transfer_station_1) {
-            transfers.push({
-              station: data.transfer_station_1,
-              from_route: data.route_1,
-              to_route: data.route_2,
-              wait_minutes: 5
+          const fromSegments = segments
+            .map((seg, idx) => {
+              const next = segments[idx + 1]
+              if (!next) return null
+              return {
+                station: seg.to_station,
+                from_route: seg.route_id,
+                to_route: next.route_id,
+                wait_minutes: 5
+              }
             })
-          }
-          if (data.transfer_station_2) {
-            transfers.push({
-              station: data.transfer_station_2,
-              from_route: data.route_2,
-              to_route: data.route_3,
-              wait_minutes: 5
-            })
+            .filter(Boolean)
+
+          const filtered = fromSegments.filter(t =>
+            t.station && t.station !== data.origin && t.station !== data.destination
+          )
+
+          // Fallback to backend fields if segments not available
+          if (filtered.length > 0) {
+            transfers.push(...filtered)
+          } else {
+            const transfer1 = data.transfer_station_1 || data.transfer_station
+            if (transfer1 && data.route_1 && data.route_2 && transfer1 !== data.origin) {
+              transfers.push({
+                station: transfer1,
+                from_route: data.route_1,
+                to_route: data.route_2,
+                wait_minutes: 5
+              })
+            }
+            if (data.transfer_station_2 && data.route_2 && data.route_3) {
+              transfers.push({
+                station: data.transfer_station_2,
+                from_route: data.route_2,
+                to_route: data.route_3,
+                wait_minutes: 5
+              })
+            }
           }
         }
         setTransferStations(transfers)
@@ -142,6 +175,14 @@ export default function AppEnhanced() {
     reset()
   }
 
+  useEffect(() => {
+    if (journey && !isTracking) {
+      setRightTab('insights')
+    } else if (!journey) {
+      setRightTab('nearest')
+    }
+  }, [journey, isTracking])
+
   return (
     <div className="app-enhanced">
       {/* Header */}
@@ -160,12 +201,17 @@ export default function AppEnhanced() {
         </div>
 
         {/* Main Content - Split View */}
-        <div className="content-wrapper">
+        <div className={`content-wrapper ${isTracking ? 'tracking-mode' : ''}`}>
           {/* Left: Map and Tracking */}
           <div className="left-panel">
             {isTracking ? (
-              <div className="tracking-container">
-                <LiveProgressTracker onComplete={handleCompleteJourney} />
+              <div className="tracking-layout">
+                <div className="tracking-map">
+                  <MapWithRouteHighlight />
+                </div>
+                <div className="tracking-panel">
+                  <LiveProgressTracker onComplete={handleCompleteJourney} />
+                </div>
               </div>
             ) : (
               <MapWithRouteHighlight />
@@ -173,20 +219,59 @@ export default function AppEnhanced() {
           </div>
 
           {/* Right: Quick Insights and Recommendations */}
-          <div className="right-panel">
-            {journey && !isTracking && (
-              <>
+          {!isTracking && (
+            <div className="right-panel">
+            <div className="right-tabs">
+              <button
+                className={`right-tab ${rightTab === 'insights' ? 'active' : ''}`}
+                onClick={() => setRightTab('insights')}
+                disabled={!journey || isTracking}
+              >
+                📋 Insights
+              </button>
+              <button
+                className={`right-tab ${rightTab === 'ai' ? 'active' : ''}`}
+                onClick={() => setRightTab('ai')}
+                disabled={!journey || isTracking}
+              >
+                🤖 AI
+              </button>
+              <button
+                className={`right-tab ${rightTab === 'chat' ? 'active' : ''}`}
+                onClick={() => setRightTab('chat')}
+              >
+                💬 Chat
+              </button>
+              <button
+                className={`right-tab ${rightTab === 'nearest' ? 'active' : ''}`}
+                onClick={() => setRightTab('nearest')}
+              >
+                🚌 Nearest
+              </button>
+            </div>
+
+            <div className="right-panel-content">
+              {rightTab === 'insights' && journey && !isTracking && (
                 <QuickInsightsPanel onStartTracking={handleStartTracking} />
+              )}
+
+              {rightTab === 'ai' && journey && !isTracking && (
                 <AIRecommendations
                   origin={originStation}
                   destination={destinationStation}
                 />
-              </>
-            )}
+              )}
 
-            {/* Nearest Bus (Always visible when have location) */}
-            <NearestBusDetector userLocation={userLocation} />
-          </div>
+              {rightTab === 'chat' && !isTracking && (
+                <JanmargChat />
+              )}
+
+              {rightTab === 'nearest' && (
+                <NearestBusDetector userLocation={userLocation} />
+              )}
+            </div>
+            </div>
+          )}
         </div>
       </div>
 

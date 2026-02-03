@@ -2,6 +2,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import random
+from math import radians, sin, cos, sqrt, atan2
+import os
+import json
+from urllib import request as urllib_request
+from urllib.error import URLError
 from janmarg_data import (
     COMMERCIAL_SPEED_KMH,
     MAX_SPEED_KMH,
@@ -22,7 +27,9 @@ from janmarg_data import (
     ROUTE_15_FULL_TRACE,
     ROUTE_15_INDICES,
     ROUTE_7_FULL_TRACE,
-    ROUTE_7_INDICES
+    ROUTE_7_INDICES,
+    FARE_BASE_INR,
+    FARE_PER_KM_INR
 )
 from janmarg_config import (
     is_peak_hour as is_peak_hour_config,
@@ -398,6 +405,199 @@ def calculate_journey(request_data: dict):
     raise HTTPException(status_code=404, detail=f"No route found between {origin} and {destination}")
 
 
+def _haversine_km(a, b):
+    """Great-circle distance between two [lat, lng] points in km."""
+    lat1, lon1 = a
+    lat2, lon2 = b
+    r = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    lat1 = radians(lat1)
+    lat2 = radians(lat2)
+
+    h = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    return 2 * r * atan2(sqrt(h), sqrt(1 - h))
+
+
+def _path_distance_km(path):
+    if not path or len(path) < 2:
+        return 0.0
+    return sum(_haversine_km(path[i], path[i + 1]) for i in range(len(path) - 1))
+
+
+def _decode_polyline(polyline_str, precision=6):
+    coords = []
+    index = 0
+    lat = 0
+    lng = 0
+    factor = 10 ** precision
+    length = len(polyline_str)
+
+    while index < length:
+        shift = 0
+        result = 0
+        while True:
+            if index >= length:
+                return coords
+            b = ord(polyline_str[index]) - 63
+            index += 1
+            result |= (b & 0x1f) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        delta_lat = ~(result >> 1) if (result & 1) else (result >> 1)
+        lat += delta_lat
+
+        shift = 0
+        result = 0
+        while True:
+            if index >= length:
+                return coords
+            b = ord(polyline_str[index]) - 63
+            index += 1
+            result |= (b & 0x1f) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        delta_lng = ~(result >> 1) if (result & 1) else (result >> 1)
+        lng += delta_lng
+
+        coords.append([lat / factor, lng / factor])
+
+    return coords
+
+
+VALHALLA_URL = os.getenv("VALHALLA_URL", "https://valhalla1.openstreetmap.de/route").strip()
+
+
+def _valhalla_route(start_coord, end_coord):
+    if not VALHALLA_URL:
+        return None
+
+    base_payload = {
+        "locations": [
+            {"lat": start_coord[0], "lon": start_coord[1]},
+            {"lat": end_coord[0], "lon": end_coord[1]}
+        ],
+        "shape_format": "geojson",
+        "directions_options": {"units": "kilometers"}
+    }
+
+    for costing in ("bus", "auto"):
+        payload = {**base_payload, "costing": costing}
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib_request.Request(
+                VALHALLA_URL,
+                data=data,
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib_request.urlopen(req, timeout=6) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+
+            leg = result.get("trip", {}).get("legs", [])[0]
+            shape = leg.get("shape", {})
+            coords = []
+            if isinstance(shape, dict):
+                coords = shape.get("coordinates", [])
+                if coords:
+                    # Valhalla returns [lon, lat]
+                    path = [[lat, lon] for lon, lat in coords]
+                else:
+                    path = []
+            elif isinstance(shape, str):
+                coords = _decode_polyline(shape, precision=6)
+                if not coords:
+                    coords = _decode_polyline(shape, precision=5)
+                path = coords
+            else:
+                path = []
+
+            if not path:
+                continue
+            summary = leg.get("summary", {})
+            distance_km = round(summary.get("length", _path_distance_km(path)), 2)
+            eta_minutes = int(round(summary.get("time", 0) / 60))
+
+            return {
+                "path": path,
+                "distance_km": distance_km,
+                "eta_minutes": eta_minutes
+            }
+        except (URLError, KeyError, IndexError, ValueError, AttributeError):
+            continue
+
+    return None
+
+
+def _station_coord(route_id, station_name, routes_map):
+    route = routes_map.get(route_id)
+    if not route:
+        return None
+    idx = route["indices"].get(station_name)
+    trace = route["trace"]
+    if idx is None or idx >= len(trace):
+        return None
+    return trace[idx]
+
+
+def _segment_info(route_id, start_station_idx, end_station_idx, routes_map):
+    """Calculate path, distance, and ETA for a segment between two stations on the same route."""
+    route = routes_map[route_id]
+    full_trace = route['trace']
+    indices = route['indices']
+    stops = route['stops']
+
+    start_idx = indices.get(stops[start_station_idx])
+    end_idx = indices.get(stops[end_station_idx])
+
+    if start_idx is None or end_idx is None:
+        start_idx = int(len(full_trace) * (start_station_idx / len(stops)))
+        end_idx = int(len(full_trace) * (end_station_idx / len(stops)))
+
+    start_station = stops[start_station_idx]
+    end_station = stops[end_station_idx]
+
+    start_coord = _station_coord(route_id, start_station, routes_map)
+    end_coord = _station_coord(route_id, end_station, routes_map)
+
+    valhalla_result = None
+    if start_coord and end_coord:
+        valhalla_result = _valhalla_route(start_coord, end_coord)
+
+    if valhalla_result:
+        path = valhalla_result["path"]
+        distance_km = valhalla_result["distance_km"]
+        eta_minutes = valhalla_result["eta_minutes"]
+        station_count = abs(end_station_idx - start_station_idx) + 1
+        if eta_minutes <= 0:
+            dwell_minutes = (station_count * DWELL_TIME_SEC) / 60
+            eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60 + dwell_minutes))
+        return {
+            "path": path,
+            "distance_km": distance_km,
+            "eta_minutes": eta_minutes,
+            "station_count": station_count
+        }
+
+    if start_idx < end_idx:
+        path = full_trace[start_idx: end_idx + 1]
+    else:
+        path = full_trace[end_idx: start_idx + 1][::-1]
+
+    distance_km = round(_path_distance_km(path), 2)
+    station_count = abs(end_station_idx - start_station_idx) + 1
+    dwell_minutes = (station_count * DWELL_TIME_SEC) / 60
+    eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60 + dwell_minutes))
+
+    return {
+        "path": path,
+        "distance_km": distance_km,
+        "eta_minutes": eta_minutes,
+        "station_count": station_count
+    }
+
+
 def _calculate_direct_path(route_id, origin_idx, dest_idx, origin, destination, routes_map):
     """Calculate path for single-route journey"""
     route = routes_map[route_id]
@@ -416,14 +616,14 @@ def _calculate_direct_path(route_id, origin_idx, dest_idx, origin, destination, 
     
     # Extract path (handle reverse)
     if start_idx < end_idx:
-        path = full_trace[start_idx : end_idx + 1]
         direction = "Onward (↓)"
     else:
-        path = full_trace[end_idx : start_idx + 1][::-1]
         direction = "Return (↑)"
-    
-    distance_km = round((len(path) * 0.3) / 10, 2)
-    eta_minutes = int((distance_km / COMMERCIAL_SPEED_KMH) * 60)
+
+    segment = _segment_info(route_id, origin_idx, dest_idx, routes_map)
+    path = segment["path"]
+    distance_km = segment["distance_km"]
+    eta_minutes = segment["eta_minutes"]
     
     return {
         "path": path,
@@ -435,6 +635,15 @@ def _calculate_direct_path(route_id, origin_idx, dest_idx, origin, destination, 
         "origin": origin,
         "destination": destination,
         "transfer": False,
+        "segments": [
+            {
+                "route_id": route_id,
+                "from_station": origin,
+                "to_station": destination,
+                "distance_km": distance_km,
+                "duration_minutes": eta_minutes
+            }
+        ],
         "timestamp": datetime.now().isoformat()
     }
 
@@ -476,26 +685,26 @@ def _find_transfer_route(origin, destination, routes_map):
                 transfer_idx_dest = dest_stops.index(transfer_station)
                 
                 # Calculate first segment
-                path1 = _calculate_segment(
+                segment1 = _segment_info(
                     origin_route['route_id'],
                     origin_route['index'],
                     transfer_idx_origin,
                     routes_map
                 )
-                
+
                 # Calculate second segment
-                path2 = _calculate_segment(
+                segment2 = _segment_info(
                     dest_route['route_id'],
                     transfer_idx_dest,
                     dest_route['index'],
                     routes_map
                 )
-                
-                if path1 and path2:
+
+                if segment1 and segment2:
                     # Concatenate paths
-                    full_path = path1[:-1] + path2  # Remove duplicate transfer station
-                    distance_km = round((len(full_path) * 0.3) / 10, 2)
-                    eta_minutes = int((distance_km / COMMERCIAL_SPEED_KMH) * 60 + 180)  # +3min for transfer
+                    full_path = segment1["path"][:-1] + segment2["path"]  # Remove duplicate transfer station
+                    distance_km = round(segment1["distance_km"] + segment2["distance_km"], 2)
+                    eta_minutes = segment1["eta_minutes"] + segment2["eta_minutes"] + 3  # +3min for transfer
                     
                     return {
                         "path": full_path,
@@ -508,6 +717,22 @@ def _find_transfer_route(origin, destination, routes_map):
                         "transfer_station": transfer_station,
                         "origin": origin,
                         "destination": destination,
+                        "segments": [
+                            {
+                                "route_id": origin_route['route_id'],
+                                "from_station": origin,
+                                "to_station": transfer_station,
+                                "distance_km": segment1["distance_km"],
+                                "duration_minutes": segment1["eta_minutes"]
+                            },
+                            {
+                                "route_id": dest_route['route_id'],
+                                "from_station": transfer_station,
+                                "to_station": destination,
+                                "distance_km": segment2["distance_km"],
+                                "duration_minutes": segment2["eta_minutes"]
+                            }
+                        ],
                         "timestamp": datetime.now().isoformat()
                     }
     
@@ -551,32 +776,32 @@ def _find_transfer_route(origin, destination, routes_map):
                 transfer_2_idx_dest = dest_stops.index(transfer_2)
                 
                 # Calculate all three segments
-                path1 = _calculate_segment(
+                segment1 = _segment_info(
                     origin_route['route_id'],
                     origin_route['index'],
                     transfer_1_idx_origin,
                     routes_map
                 )
                 
-                path2 = _calculate_segment(
+                segment2 = _segment_info(
                     mid_route_id,
                     transfer_1_idx_mid,
                     transfer_2_idx_mid,
                     routes_map
                 )
                 
-                path3 = _calculate_segment(
+                segment3 = _segment_info(
                     dest_route['route_id'],
                     transfer_2_idx_dest,
                     dest_route['index'],
                     routes_map
                 )
                 
-                if path1 and path2 and path3:
+                if segment1 and segment2 and segment3:
                     # Concatenate all three paths, removing duplicate transfer stations
-                    full_path = path1[:-1] + path2[:-1] + path3
-                    distance_km = round((len(full_path) * 0.3) / 10, 2)
-                    eta_minutes = int((distance_km / COMMERCIAL_SPEED_KMH) * 60 + 360)  # +6min for two transfers
+                    full_path = segment1["path"][:-1] + segment2["path"][:-1] + segment3["path"]
+                    distance_km = round(segment1["distance_km"] + segment2["distance_km"] + segment3["distance_km"], 2)
+                    eta_minutes = segment1["eta_minutes"] + segment2["eta_minutes"] + segment3["eta_minutes"] + 6  # +6min for two transfers
                     
                     return {
                         "path": full_path,
@@ -591,6 +816,29 @@ def _find_transfer_route(origin, destination, routes_map):
                         "transfer_station_2": transfer_2,
                         "origin": origin,
                         "destination": destination,
+                        "segments": [
+                            {
+                                "route_id": origin_route['route_id'],
+                                "from_station": origin,
+                                "to_station": transfer_1,
+                                "distance_km": segment1["distance_km"],
+                                "duration_minutes": segment1["eta_minutes"]
+                            },
+                            {
+                                "route_id": mid_route_id,
+                                "from_station": transfer_1,
+                                "to_station": transfer_2,
+                                "distance_km": segment2["distance_km"],
+                                "duration_minutes": segment2["eta_minutes"]
+                            },
+                            {
+                                "route_id": dest_route['route_id'],
+                                "from_station": transfer_2,
+                                "to_station": destination,
+                                "distance_km": segment3["distance_km"],
+                                "duration_minutes": segment3["eta_minutes"]
+                            }
+                        ],
                         "timestamp": datetime.now().isoformat()
                     }
     
@@ -615,6 +863,103 @@ def _calculate_segment(route_id, start_station_idx, end_station_idx, routes_map)
         return full_trace[start_idx : end_idx + 1]
     else:
         return full_trace[end_idx : start_idx + 1][::-1]
+
+
+def _find_route_id_by_stations(origin, destination, routes_map):
+    for route_id, route_data in routes_map.items():
+        stops = route_data['stops']
+        if origin in stops and destination in stops:
+            return route_id
+    return None
+
+
+def _resolve_route_id_from_text(message, journey, routes_map):
+    text = message.lower()
+    for rid in ('15', '7', '1'):
+        if f"route {rid}" in text or f"r{rid}" in text:
+            return rid
+
+    if journey:
+        return journey.get("route_id") or journey.get("route_1") or journey.get("route")
+
+    return None
+
+
+def _format_stops(stops):
+    return ", ".join(stops)
+
+
+def _build_chat_answer(message, origin, destination, journey, routes_map):
+    text = message.lower()
+    sources = []
+
+    route_id = _resolve_route_id_from_text(message, journey, routes_map)
+    if not route_id and origin and destination:
+        route_id = _find_route_id_by_stations(origin, destination, routes_map)
+
+    if any(word in text for word in ("fare", "price", "ticket")):
+        distance_km = None
+        if journey and journey.get("total_distance_km"):
+            distance_km = journey.get("total_distance_km")
+        elif route_id and route_id in ROUTE_DISTANCES:
+            distance_km = ROUTE_DISTANCES[route_id]
+
+        if distance_km is None:
+            return {
+                "answer": "Provide a route or origin and destination so I can estimate the fare based on official distance data.",
+                "sources": []
+            }
+
+        fare = int(round(FARE_BASE_INR + (distance_km * FARE_PER_KM_INR)))
+        sources.extend([
+            "FARE_BASE_INR",
+            "FARE_PER_KM_INR",
+            "ROUTE_DISTANCES"
+        ])
+        return {
+            "answer": f"Estimated fare: ₹{fare} (base ₹{FARE_BASE_INR} + ₹{FARE_PER_KM_INR}/km for {round(distance_km, 1)} km).",
+            "sources": sources
+        }
+
+    if any(word in text for word in ("route", "stations", "stops", "station list")):
+        if not route_id:
+            return {
+                "answer": "Tell me a route number (1, 7, 15) or select stations so I can list the official stops.",
+                "sources": []
+            }
+        stops = routes_map[route_id]["stops"]
+        distance = ROUTE_DISTANCES.get(route_id)
+        sources.extend(["ROUTE_1_STOPS", "ROUTE_7_STOPS", "ROUTE_15_STOPS", "ROUTE_DISTANCES"])
+        return {
+            "answer": f"Route {route_id} stops: {_format_stops(stops)}. Distance ≈ {distance} km.",
+            "sources": sources
+        }
+
+    if any(word in text for word in ("bus", "capacity", "headway", "frequency", "peak")):
+        sources.extend([
+            "HEADWAY_PEAK",
+            "HEADWAY_OFFPEAK",
+            "BUS_CAPACITY_STD",
+            "BUS_CAPACITY_ART",
+            "PEAK_HOURS_MORNING",
+            "PEAK_HOURS_EVENING"
+        ])
+        return {
+            "answer": (
+                f"Official service info: peak headway ≈ {HEADWAY_PEAK} min, off-peak ≈ {HEADWAY_OFFPEAK} min. "
+                f"Standard bus capacity {BUS_CAPACITY_STD} passengers (articulated {BUS_CAPACITY_ART}). "
+                "Peak hours are 8–11 AM and 5–8 PM."
+            ),
+            "sources": sources
+        }
+
+    return {
+        "answer": (
+            "I can share official Janmarg data on routes, stops, headways, capacity, and fares. "
+            "Ask about a route number, stations, bus frequency, or fare."
+        ),
+        "sources": ["ROUTE_DISTANCES", "ROUTE_1_STOPS", "ROUTE_7_STOPS", "ROUTE_15_STOPS"]
+    }
 
 
 # ============================================================================
@@ -737,6 +1082,42 @@ def smart_recommendations(request_data: dict):
     journey = request_data.get("journey")
     
     return transit_ai.get_smart_recommendations(origin, destination, journey)
+
+
+@app.post("/api/janmarg-chat")
+def janmarg_chat(request_data: dict):
+    """
+    Chat endpoint for official Janmarg data: routes, stops, fares, and bus info.
+    """
+    message = (request_data.get("message") or "").strip()
+    origin = (request_data.get("origin") or "").strip()
+    destination = (request_data.get("destination") or "").strip()
+    journey = request_data.get("journey") or None
+
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    routes_map = {
+        '1': {
+            'stops': ROUTE_1_STOPS,
+            'trace': ROUTE_1_FULL_TRACE,
+            'indices': ROUTE_1_INDICES
+        },
+        '15': {
+            'stops': ROUTE_15_STOPS,
+            'trace': ROUTE_15_FULL_TRACE,
+            'indices': ROUTE_15_INDICES
+        },
+        '7': {
+            'stops': ROUTE_7_STOPS,
+            'trace': ROUTE_7_FULL_TRACE,
+            'indices': ROUTE_7_INDICES
+        }
+    }
+
+    response = _build_chat_answer(message, origin, destination, journey, routes_map)
+    response["timestamp"] = datetime.now().isoformat()
+    return response
 
 
 if __name__ == "__main__":

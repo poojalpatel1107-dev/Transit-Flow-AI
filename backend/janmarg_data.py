@@ -26,6 +26,12 @@ BUS_CAPACITY_STD = 80   # Standard bus capacity (passengers)
 BUS_CAPACITY_ART = 150  # Articulated bus capacity (passengers)
 
 # ============================================================================
+# 4A. OFFICIAL FARE MODEL (Configured)
+# ============================================================================
+FARE_BASE_INR = 5
+FARE_PER_KM_INR = 2
+
+# ============================================================================
 # 4. PEAK HOURS DEFINITION (Hour of day, 24-hour format)
 # ============================================================================
 PEAK_HOURS_MORNING = (8, 11)   # Morning peak: 8:00 AM to 11:00 AM

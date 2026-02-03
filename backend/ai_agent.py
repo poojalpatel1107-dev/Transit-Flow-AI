@@ -10,7 +10,16 @@ from janmarg_data import (
     HEADWAY_PEAK,
     HEADWAY_OFFPEAK,
     PEAK_HOURS_MORNING,
-    PEAK_HOURS_EVENING
+    PEAK_HOURS_EVENING,
+    ROUTE_1_STOPS,
+    ROUTE_7_STOPS,
+    ROUTE_15_STOPS,
+    ROUTE_1_FULL_TRACE,
+    ROUTE_7_FULL_TRACE,
+    ROUTE_15_FULL_TRACE,
+    ROUTE_1_INDICES,
+    ROUTE_7_INDICES,
+    ROUTE_15_INDICES
 )
 import random
 import math
@@ -18,6 +27,40 @@ import math
 
 class TransitAIAgent:
     """Smart AI agent for transit predictions and recommendations"""
+
+    @staticmethod
+    def _haversine_km(a, b):
+        lat1, lon1 = a
+        lat2, lon2 = b
+        r = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        lat1 = math.radians(lat1)
+        lat2 = math.radians(lat2)
+
+        h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        return 2 * r * math.atan2(math.sqrt(h), math.sqrt(1 - h))
+
+    @staticmethod
+    def _station_points():
+        route_defs = {
+            "1": (ROUTE_1_STOPS, ROUTE_1_INDICES, ROUTE_1_FULL_TRACE),
+            "7": (ROUTE_7_STOPS, ROUTE_7_INDICES, ROUTE_7_FULL_TRACE),
+            "15": (ROUTE_15_STOPS, ROUTE_15_INDICES, ROUTE_15_FULL_TRACE)
+        }
+
+        points = []
+        for route_id, (stops, indices, trace) in route_defs.items():
+            for stop in stops:
+                idx = indices.get(stop)
+                if idx is None or idx >= len(trace):
+                    continue
+                points.append({
+                    "route_id": route_id,
+                    "station": stop,
+                    "location": trace[idx]
+                })
+        return points
 
     @staticmethod
     def get_nearest_bus(user_lat, user_lng, user_route_id=None):
@@ -41,46 +84,45 @@ class TransitAIAgent:
         """
         current_hour = datetime.now().hour
         
-        # Simulate nearby buses on different routes
-        simulated_buses = [
-            {
-                "bus_id": f"BUS-R1-{random.randint(100, 999)}",
-                "route_id": "1",
-                "distance_km": round(random.uniform(0.5, 3.0), 2),
-                "location": [user_lat + random.uniform(-0.01, 0.01), user_lng + random.uniform(-0.01, 0.01)]
-            },
-            {
-                "bus_id": f"BUS-R7-{random.randint(100, 999)}",
-                "route_id": "7",
-                "distance_km": round(random.uniform(1.0, 4.0), 2),
-                "location": [user_lat + random.uniform(-0.02, 0.02), user_lng + random.uniform(-0.02, 0.02)]
-            },
-            {
-                "bus_id": f"BUS-R15-{random.randint(100, 999)}",
-                "route_id": "15",
-                "distance_km": round(random.uniform(2.0, 5.0), 2),
-                "location": [user_lat + random.uniform(-0.03, 0.03), user_lng + random.uniform(-0.03, 0.03)]
-            }
-        ]
-        
-        # Filter by route if specified
+        user_point = [user_lat, user_lng]
+        stations = TransitAIAgent._station_points()
+
         if user_route_id:
-            simulated_buses = [b for b in simulated_buses if b["route_id"] == user_route_id]
-        
-        # Find nearest
-        nearest = min(simulated_buses, key=lambda x: x["distance_km"])
+            stations = [s for s in stations if s["route_id"] == user_route_id]
+
+        if not stations:
+            return {
+                "bus_id": None,
+                "route_id": None,
+                "distance_km": None,
+                "eta_minutes": None,
+                "location": None,
+                "heading": "unavailable",
+                "occupancy_percent": None,
+                "timestamp": datetime.now().isoformat(),
+                "station_name": None
+            }
+
+        # Find nearest station from predefined stops
+        nearest = min(
+            stations,
+            key=lambda s: TransitAIAgent._haversine_km(user_point, s["location"])
+        )
+
+        distance_km = round(TransitAIAgent._haversine_km(user_point, nearest["location"]), 2)
         
         # Calculate ETA based on distance
-        eta_minutes = round((nearest["distance_km"] / COMMERCIAL_SPEED_KMH) * 60 + random.uniform(1, 3))
+        eta_minutes = round((distance_km / COMMERCIAL_SPEED_KMH) * 60 + random.uniform(1, 3))
         
         return {
-            "bus_id": nearest["bus_id"],
+            "bus_id": f"BUS-R{nearest['route_id']}-{random.randint(100, 999)}",
             "route_id": nearest["route_id"],
-            "distance_km": nearest["distance_km"],
+            "distance_km": distance_km,
             "eta_minutes": eta_minutes,
             "location": nearest["location"],
-            "heading": "approaching_your_route" if nearest["distance_km"] < 2 else "in_transit",
+            "heading": "approaching_your_route" if distance_km < 2 else "in_transit",
             "occupancy_percent": round(random.uniform(30, 85)),
+            "station_name": nearest["station"],
             "timestamp": datetime.now().isoformat()
         }
 

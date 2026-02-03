@@ -5,76 +5,96 @@ import './LiveProgressTracker.css'
 export default function LiveProgressTracker({ onComplete }) {
   const journey = useJourneyStore(state => state.journey)
   const isTracking = useJourneyStore(state => state.isTracking)
-  const estimatedArrival = useJourneyStore(state => state.estimatedArrival)
-  const currentStationIndex = useJourneyStore(state => state.currentStationIndex)
-  const currentSegmentIndex = useJourneyStore(state => state.currentSegmentIndex)
-  const nextTransferStation = useJourneyStore(state => state.nextTransferStation)
-  const nextTransferIn = useJourneyStore(state => state.nextTransferIn)
   const transferStations = useJourneyStore(state => state.transferStations)
   
   const updateBusLocation = useJourneyStore(state => state.updateBusLocation)
-  const updateEstimatedArrival = useJourneyStore(state => state.updateEstimatedArrival)
   const updateCurrentPosition = useJourneyStore(state => state.updateCurrentPosition)
 
-  const [timeRemaining, setTimeRemaining] = useState(estimatedArrival || journey?.eta_minutes || 0)
-  const [progressPercent, setProgressPercent] = useState(0)
+  const segments = journey?.segments || (journey ? [
+    {
+      route_id: journey.route_id,
+      from_station: journey.origin,
+      to_station: journey.destination,
+      duration_minutes: journey.eta_minutes,
+      distance_km: journey.total_distance_km
+    }
+  ] : [])
+
+  const segmentDurations = segments.map(seg =>
+    Number(seg.duration_minutes ?? (journey?.eta_minutes / Math.max(1, segments.length))) || 0
+  )
+
+  const totalMinutes = Math.max(
+    1,
+    Math.round(segmentDurations.reduce((sum, d) => sum + d, 0) || journey?.eta_minutes || 1)
+  )
+
+  const totalSeconds = totalMinutes * 60
+  const [timeRemainingSec, setTimeRemainingSec] = useState(totalSeconds)
+
+  useEffect(() => {
+    if (!journey) return
+    setTimeRemainingSec(totalSeconds)
+  }, [journey, totalSeconds])
 
   // Simulate real-time bus movement
   useEffect(() => {
     if (!isTracking || !journey) return
 
     const interval = setInterval(() => {
-      setTimeRemaining(prev => {
-        if (prev <= 0) {
+      setTimeRemainingSec(prev => {
+        const next = Math.max(0, prev - 0.5)
+        if (next === 0) {
           onComplete?.()
-          return 0
         }
-        return prev - 1
+        return next
       })
-
-      // Update position along route
-      setProgressPercent(prev => {
-        const newProgress = prev + (1 / (journey.eta_minutes || 30))
-        if (newProgress >= 100) {
-          onComplete?.()
-          return 100
-        }
-        return newProgress
-      })
-
-      // Simulate moving bus location
-      if (journey.path && journey.path.length > 0) {
-        const pathIndex = Math.floor(
-          (progressPercent / 100) * (journey.path.length - 1)
-        )
-        if (pathIndex < journey.path.length) {
-          const coord = journey.path[Math.min(pathIndex, journey.path.length - 1)]
-          updateBusLocation(coord[0], coord[1])
-        }
-      }
-
-      updateCurrentPosition(
-        Math.floor((progressPercent / 100) * (journey.path?.length || 1))
-      )
-    }, 1000)
+    }, 500)
 
     return () => clearInterval(interval)
-  }, [isTracking, journey, progressPercent, onComplete])
+  }, [isTracking, journey, onComplete])
+
+  useEffect(() => {
+    if (!journey || !journey.path || journey.path.length === 0) return
+    const elapsed = Math.max(0, totalSeconds - timeRemainingSec)
+    const progress = Math.min(100, (elapsed / totalSeconds) * 100)
+    const pathIndex = Math.floor((progress / 100) * (journey.path.length - 1))
+    const coord = journey.path[Math.min(pathIndex, journey.path.length - 1)]
+    updateBusLocation(coord[0], coord[1])
+    updateCurrentPosition(pathIndex)
+  }, [timeRemainingSec, totalSeconds, journey, updateBusLocation, updateCurrentPosition])
 
   if (!isTracking || !journey) {
     return null
   }
 
-  const segments = journey.segments || [
-    {
-      route_id: journey.route_id,
-      from_station: journey.origin,
-      to_station: journey.destination
+  const elapsedSec = Math.max(0, totalSeconds - timeRemainingSec)
+  let running = elapsedSec
+  let currentSegmentIndex = 0
+  let timeToNextTransferSec = 0
+
+  for (let i = 0; i < segmentDurations.length; i++) {
+    const segSec = Math.max(1, Math.round(segmentDurations[i] * 60))
+    if (running < segSec) {
+      currentSegmentIndex = i
+      timeToNextTransferSec = segSec - running
+      break
     }
-  ]
+    running -= segSec
+  }
 
   const currentSegment = segments[currentSegmentIndex] || segments[0]
   const hasTransfers = journey.transfer && transferStations?.length > 0
+  const nextTransferStationName = hasTransfers && currentSegmentIndex < segments.length - 1
+    ? currentSegment.to_station
+    : ''
+
+  const segmentDistance = Number(
+    currentSegment.distance_km ?? (journey.total_distance_km / Math.max(1, segments.length))
+  )
+  const safeSegmentDistance = Number.isFinite(segmentDistance) ? segmentDistance : 0
+  const progressPercent = Math.min(100, (elapsedSec / totalSeconds) * 100)
+  const timeRemainingMin = Math.max(0, Math.ceil(timeRemainingSec / 60))
 
   return (
     <div className="live-tracker-container">
@@ -84,12 +104,12 @@ export default function LiveProgressTracker({ onComplete }) {
           <span className="status-icon">🚌</span>
           <div className="status-info">
             <h2>En Route</h2>
-            <p>Route {currentSegment.route_id}</p>
+            <p>{journey.origin} → {journey.destination} • Route {currentSegment.route_id}</p>
           </div>
         </div>
 
         <div className="eta-badge">
-          <span className="timer">⏱️ {Math.max(0, timeRemaining)} min</span>
+          <span className="timer">⏱️ {timeRemainingMin} min</span>
         </div>
       </div>
 
@@ -99,7 +119,7 @@ export default function LiveProgressTracker({ onComplete }) {
           <div className="progress-bar">
             <div
               className="progress-fill"
-              style={{ width: `${Math.min(progressPercent, 100)}%` }}
+              style={{ width: `${Math.min(progressPercent > 0 ? Math.max(progressPercent, 1) : 0, 100)}%` }}
             />
           </div>
           <span className="progress-label">{Math.min(Math.round(progressPercent), 100)}% complete</span>
@@ -138,7 +158,7 @@ export default function LiveProgressTracker({ onComplete }) {
       </div>
 
       {/* Next Transfer Info (if applicable) */}
-      {hasTransfers && nextTransferStation && currentSegmentIndex < segments.length - 1 && (
+        {hasTransfers && nextTransferStationName && currentSegmentIndex < segments.length - 1 && progressPercent < 100 && (
         <div className="next-transfer-info">
           <div className="transfer-header">
             <span className="transfer-icon">🔄</span>
@@ -146,8 +166,8 @@ export default function LiveProgressTracker({ onComplete }) {
           </div>
           <div className="transfer-details">
             <div className="transfer-station">
-              <strong>{nextTransferStation}</strong>
-              <span className="transfer-time">in {Math.max(0, nextTransferIn || 8)} min</span>
+                <strong>{nextTransferStationName}</strong>
+                <span className="transfer-time">in {Math.max(1, Math.ceil(timeToNextTransferSec / 60))} min</span>
             </div>
             <div className="transfer-routes">
               <span className="route-from">Route {currentSegment.route_id}</span>
@@ -165,7 +185,7 @@ export default function LiveProgressTracker({ onComplete }) {
           <div className="card-content">
             <p className="card-label">Distance</p>
             <p className="card-value">
-              {(currentSegment.distance_km || journey.total_distance_km / segments.length).toFixed(1)} km
+              {safeSegmentDistance.toFixed(1)} km
             </p>
           </div>
         </div>
@@ -191,7 +211,7 @@ export default function LiveProgressTracker({ onComplete }) {
       <div className="tracker-footer">
         <div className="arrival-info">
           <p className="arrival-text">Estimated arrival</p>
-          <p className="arrival-time">{Math.max(0, timeRemaining)} minutes</p>
+          <p className="arrival-time">{timeRemainingMin} minutes</p>
         </div>
       </div>
     </div>
