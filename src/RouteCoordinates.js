@@ -88,7 +88,7 @@ export const ROUTE_15_STATIONS = [
   { id: 109, name: "Shastrinagar", coords: [23.062205155157585, 72.55297099449686], crowd: "Med" },
   { id: 110, name: "Pragatinagar", coords: [23.06461206268891, 72.55602276456955], crowd: "Low" },
   { id: 111, name: "Akbarnagar", coords: [23.067657096672463, 72.56575610643137], crowd: "Med" },
-  { id: 112, name: "Ranip Cross-Road", coords: [ 23.067700028201443, 72.574104939802], crowd: "Low" },
+  { id: 112, name: "Ranip Cross-Road", coords: [23.067700028201443, 72.574104939802], crowd: "Low" },
   { id: 113, name: "RTO Circle", coords: [23.06889090440967, 72.5814969639411], crowd: "High" },
   { id: 114, name: "Ahmedabad Domestic Airport", coords: [23.07181793109845, 72.622128228002], crowd: "High" }
 ];
@@ -245,7 +245,7 @@ export const ROUTE_15_COORDINATES = [
   [23.07213519923083, 72.62246195544128],
   [23.07181793109845, 72.622128228002]
 ]
-
+//23.067700028201443, 72.574104939802
 // 🏟️ ROUTE 7: AIRPORT -> MOTERA STADIUM (High Precision Trace)
 export const ROUTE_7_COORDINATES = [
   [23.067693, 72.574044], // Start: Airport Circle
@@ -304,7 +304,7 @@ export const ROUTE_7_COORDINATES = [
 ];
 
 export const ROUTE_7_STATIONS = [
-  { id: 201, name: "Ranip Cross-Road", coords: [23.067670, 72.574081], crowd: "Med" },
+  { id: 201, name: "Ranip Cross-Road", coords: [23.067700028201443, 72.574104939802], crowd: "Med" },
   { id: 202, name: "RTO Circle", coords: [23.06889090440967, 72.5814969639411], crowd: "Low" },
   { id: 203, name: "Sabarmati Power-House", coords: [23.075076, 72.593261], crowd: "Med" },
   { id: 204, name: "Sabarmati Police Station", coords: [23.085568, 72.592037], crowd: "High" },

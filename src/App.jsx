@@ -2047,70 +2047,94 @@ export default function App() {
         {(transferStation || secondTransferStation) && (
           <>
             {/* First Transfer Station Marker */}
-            {transferStation && (
-              <Marker
-                position={
-                  (firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
-                    .find(s => s.name === transferStation)?.coords || [0, 0]
-                }
-                icon={L.divIcon({
-                  html: `<div style="
-                    width: 40px;
-                    height: 40px;
-                    background: radial-gradient(circle, #ffa500 0%, #ff8c00 70%);
-                    border: 3px solid #ffffff;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 20px;
-                    box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 40px rgba(255, 165, 0, 0.4);
-                  ">🔄</div>`,
-                  iconSize: [40, 40],
-                  className: 'transfer-icon'
-                })}
-              >
-                <Popup>
-                  <div style={{ textAlign: 'center' }}>
-                    <strong>🔄 Transfer Point 1</strong><br/>
-                    {transferStation}
-                  </div>
-                </Popup>
-              </Marker>
-            )}
+            {transferStation && (() => {
+              const stationsList = firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS
+              const stationObj = stationsList.find(s => s.name === transferStation)
+              
+              if (!stationObj) return null
+              
+              return (
+                <Marker
+                  key={`transfer-1-${transferStation}`}
+                  position={stationObj.coords}
+                  icon={L.divIcon({
+                    html: `<div style="
+                      width: 40px;
+                      height: 40px;
+                      background: radial-gradient(circle, #ffa500 0%, #ff8c00 70%);
+                      border: 3px solid #ffffff;
+                      border-radius: 50%;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      font-size: 20px;
+                      box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 40px rgba(255, 165, 0, 0.4);
+                      cursor: pointer;
+                    ">🔄</div>`,
+                    iconSize: [40, 40],
+                    className: 'transfer-icon'
+                  })}
+                  eventHandlers={{
+                    click: () => {
+                      console.log('Transfer Station 1 clicked:', stationObj)
+                      handleStationClick(stationObj)
+                    }
+                  }}
+                >
+                  <Popup>
+                    <div style={{ textAlign: 'center' }}>
+                      <strong>🔄 Transfer Point 1</strong><br/>
+                      {transferStation}
+                    </div>
+                  </Popup>
+                </Marker>
+              )
+            })()}
             
             {/* Second Transfer Station Marker */}
-            {secondTransferStation && (
-              <Marker
-                position={
-                  (secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
-                    .find(s => s.name === secondTransferStation)?.coords || [0, 0]
-                }
-                icon={L.divIcon({
-                  html: `<div style="
-                    width: 40px;
-                    height: 40px;
-                    background: radial-gradient(circle, #ffa500 0%, #ff8c00 70%);
-                    border: 3px solid #ffffff;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 20px;
-                    box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 40px rgba(255, 165, 0, 0.4);
-                  ">🔄</div>`,
-                  iconSize: [40, 40],
-                  className: 'transfer-icon'
-                })}
-              >
-                <Popup>
-                  <div style={{ textAlign: 'center' }}>
-                    <strong>🔄 Transfer Point 2</strong><br/>
-                    {secondTransferStation}
-                  </div>
-                </Popup>
-              </Marker>
-            )}
+            {secondTransferStation && (() => {
+              const stationsList = secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS
+              const stationObj = stationsList.find(s => s.name === secondTransferStation)
+              
+              if (!stationObj) return null
+              
+              return (
+                <Marker
+                  key={`transfer-2-${secondTransferStation}`}
+                  position={stationObj.coords}
+                  icon={L.divIcon({
+                    html: `<div style="
+                      width: 40px;
+                      height: 40px;
+                      background: radial-gradient(circle, #ffa500 0%, #ff8c00 70%);
+                      border: 3px solid #ffffff;
+                      border-radius: 50%;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      font-size: 20px;
+                      box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 40px rgba(255, 165, 0, 0.4);
+                      cursor: pointer;
+                    ">🔄</div>`,
+                    iconSize: [40, 40],
+                    className: 'transfer-icon'
+                  })}
+                  eventHandlers={{
+                    click: () => {
+                      console.log('Transfer Station 2 clicked:', stationObj)
+                      handleStationClick(stationObj)
+                    }
+                  }}
+                >
+                  <Popup>
+                    <div style={{ textAlign: 'center' }}>
+                      <strong>🔄 Transfer Point 2</strong><br/>
+                      {secondTransferStation}
+                    </div>
+                  </Popup>
+                </Marker>
+              )
+            })()}
           </>
         )}
 
@@ -2335,7 +2359,28 @@ export default function App() {
             >
               Find Bus 🔍
             </button>
-            
+              {/* Direction Toggle - Only show for Route 1 */}
+              {selectedRoute === '1' && origin && destination && (
+                <button
+                  onClick={() => {
+                    const newDirection = routeDirection === 'D' ? 'U' : 'D'
+                    setRouteDirection(newDirection)
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    background: routeDirection === 'D' ? 'rgba(0, 255, 153, 0.2)' : 'rgba(100, 150, 255, 0.2)',
+                    border: routeDirection === 'D' ? '1px solid rgba(0, 255, 153, 0.5)' : '1px solid rgba(100, 150, 255, 0.5)',
+                    borderRadius: '8px',
+                    color: routeDirection === 'D' ? '#00ff99' : '#64d4ff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {routeDirection === 'D' ? '↓ Forward' : '↑ Reverse'}
+                </button>
+              )}
             {/* Clear Segment Filter Button - Only show when segment or transfer is active */}
             {(segmentCoordinates || transferStation) && (
               <button
