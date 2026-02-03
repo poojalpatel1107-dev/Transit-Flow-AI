@@ -10,6 +10,8 @@ function CommutInsights({
   comfortMeter,
   nextBusTime,
   onClose,
+  insightData = null,
+  isLoadingInsight = false,
 }) {
   const [showAlternative, setShowAlternative] = useState(false)
 
@@ -21,6 +23,12 @@ function CommutInsights({
   }
 
   const comfort = comfortMeter ? getComfortLevel(comfortMeter) : null
+
+  // Get dynamic next bus time from insight data if available
+  const displayNextBusTime = insightData?.next_bus_in || nextBusTime
+  const displayFrequency = insightData?.frequency || 'N/A'
+  const displayTravelTime = insightData?.travel_time ? Math.round(insightData.travel_time) : '15'
+  const displayCrowd = insightData?.crowd || 'Moderate'
 
   return (
     <AnimatePresence>
@@ -54,7 +62,7 @@ function CommutInsights({
               </div>
             </div>
 
-            {/* Metrics Grid */}
+            {/* Metrics Grid - Dynamic data from physics engine */}
             <div className="metrics-grid">
               {/* Comfort Meter */}
               <motion.div
@@ -62,7 +70,7 @@ function CommutInsights({
                 whileHover={{ scale: 1.05 }}
                 transition={{ type: 'spring', stiffness: 300 }}
               >
-                <div className="metric-icon" style={{ color: comfort.color }}>
+                <div className="metric-icon" style={{ color: comfort?.color }}>
                   <Gauge size={24} />
                 </div>
                 <div className="metric-content">
@@ -72,15 +80,15 @@ function CommutInsights({
                       className="comfort-bar"
                       style={{
                         width: `${comfortMeter}%`,
-                        backgroundColor: comfort.color,
+                        backgroundColor: comfort?.color,
                       }}
                     />
                   </div>
-                  <div className="metric-sublabel">{comfortMeter}% - {comfort.level}</div>
+                  <div className="metric-sublabel">{comfortMeter}% - {comfort?.level}</div>
                 </div>
               </motion.div>
 
-              {/* Next Bus */}
+              {/* Next Bus - Dynamic from /api/insight */}
               <motion.div
                 className="metric-card"
                 whileHover={{ scale: 1.05 }}
@@ -92,13 +100,13 @@ function CommutInsights({
                 <div className="metric-content">
                   <div className="metric-label">Next Bus</div>
                   <div className="metric-value" style={{ color: '#3b82f6' }}>
-                    {nextBusTime} min
+                    {isLoadingInsight ? '...' : displayNextBusTime} min
                   </div>
-                  <div className="metric-sublabel">Arriving soon</div>
+                  <div className="metric-sublabel">Every {displayFrequency} min</div>
                 </div>
               </motion.div>
 
-              {/* Estimated Time */}
+              {/* Estimated Duration - Dynamic from physics calculation */}
               <motion.div
                 className="metric-card"
                 whileHover={{ scale: 1.05 }}
@@ -110,12 +118,46 @@ function CommutInsights({
                 <div className="metric-content">
                   <div className="metric-label">Est. Duration</div>
                   <div className="metric-value" style={{ color: '#8b5cf6' }}>
-                    {Math.floor(Math.random() * 15) + 15} min
+                    {displayTravelTime} min
                   </div>
                   <div className="metric-sublabel">Journey time</div>
                 </div>
               </motion.div>
+
+              {/* Crowd Level - Dynamic from time-based calculation */}
+              <motion.div
+                className="metric-card"
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: 'spring', stiffness: 300 }}
+              >
+                <div className="metric-icon" style={{ color: displayCrowd.includes('Standing') ? '#ff0055' : displayCrowd.includes('Mixed') ? '#ffcc00' : '#00ff99' }}>
+                  <Zap size={24} />
+                </div>
+                <div className="metric-content">
+                  <div className="metric-label">Crowd Level</div>
+                  <div className="metric-value" style={{ color: displayCrowd.includes('Standing') ? '#ff0055' : displayCrowd.includes('Mixed') ? '#ffcc00' : '#00ff99' }}>
+                    {displayCrowd}
+                  </div>
+                  <div className="metric-sublabel">Real-time status</div>
+                </div>
+              </motion.div>
             </div>
+
+            {/* Status from physics engine */}
+            {insightData && !isLoadingInsight && (
+              <div style={{
+                padding: '12px',
+                background: 'rgba(0, 255, 153, 0.1)',
+                border: '1px solid rgba(0, 255, 153, 0.3)',
+                borderRadius: '8px',
+                textAlign: 'center',
+                marginBottom: '16px',
+                fontSize: '12px',
+                color: '#00ff99',
+              }}>
+                <p style={{ margin: 0 }}>⚡ {insightData.status}</p>
+              </div>
+            )}
 
             {/* AI Suggestion Section */}
             <AnimatePresence>
@@ -129,7 +171,7 @@ function CommutInsights({
                   layout
                 >
                   <Zap size={18} />
-                  <span>Save 11 mins - Alternative Route</span>
+                  <span>Check Alternative Routes</span>
                 </motion.button>
               ) : (
                 <motion.div
@@ -143,8 +185,8 @@ function CommutInsights({
                   <div className="alternative-content">
                     <div className="alternative-header">
                       <div>
-                        <h3 className="alternative-title">Faster Route Available</h3>
-                        <p className="alternative-subtitle">Route 12: Direct Express via L.D. College</p>
+                        <h3 className="alternative-title">Route Information</h3>
+                        <p className="alternative-subtitle">{insightData?.status || 'Real-time predictions'}</p>
                       </div>
                       <button
                         className="close-alternative"
@@ -155,16 +197,16 @@ function CommutInsights({
                     </div>
                     <div className="alternative-comparison">
                       <div className="comparison-item">
-                        <div className="comparison-label">Regular Route</div>
+                        <div className="comparison-label">Travel Time</div>
                         <div className="comparison-value">
-                          <Clock size={16} /> 28 mins
+                          <Clock size={16} /> {displayTravelTime} mins
                         </div>
                       </div>
-                      <div className="comparison-arrow">→</div>
+                      <div className="comparison-arrow">•</div>
                       <div className="comparison-item highlight">
-                        <div className="comparison-label">AI Route</div>
+                        <div className="comparison-label">Crowd Level</div>
                         <div className="comparison-value">
-                          <Zap size={16} /> 17 mins
+                          <Bus size={16} /> {displayCrowd}
                         </div>
                       </div>
                     </div>
@@ -173,7 +215,7 @@ function CommutInsights({
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
-                      Apply AI Route
+                      View Full Analytics
                     </motion.button>
                   </div>
                 </motion.div>

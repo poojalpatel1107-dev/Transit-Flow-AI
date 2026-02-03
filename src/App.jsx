@@ -6,6 +6,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
 import { REAL_ROUTE_1, STATIONS, ROUTE_15_COORDINATES, ROUTE_15_STATIONS, ROUTE_7_COORDINATES, ROUTE_7_STATIONS, getStationAnalytics } from './RouteCoordinates'
+import { fetchRouteAnalytics, fetchRouteInsight } from './services/AIAgent'
 
 // 🎯 HAVERSINE FORMULA: Calculate distance between two GPS coordinates
 // Returns distance in kilometers
@@ -202,12 +203,24 @@ const getCrowdData = () => {
 }
 const crowdData = getCrowdData()
 
-// FAQ Data - Hardcoded Knowledge Base
+// FAQ Data - Transit-Focused Knowledge Base
 const faqs = [
-  { q: 'What is the fare to ISKCON?', a: `Fare from Shivranjani to ISKCON is ₹${calculateFare(0, 2)} (₹5 base + ₹2 per stop)` },
-  { q: 'When is the next bus?', a: 'Next 1D bus is in 4 mins. Route 12D in 7 mins.' },
-  { q: 'Which route is less crowded?', a: `Route 12D via Service Road is ${100 - initialLoad12D}% empty right now! Save time and travel comfortably.` },
-  { q: 'How long is the journey?', a: `Shivranjani to ISKCON takes ${busData['1'].baseTime + getTrafficDelay(currentHour)} minutes via Route 1 (with traffic), or ${busData['12D'].baseTime + getTrafficDelay(currentHour)} minutes via Route 12D.` }
+  { 
+    q: 'What is the fare for my route?', 
+    a: `Standard Janmarg Fare: ₹5 base fare (up to 5 km) + ₹2 per additional km. Example: Shivranjani to ISKCON (12 km) = ₹19. Use Janmarg card for discounts.` 
+  },
+  { 
+    q: 'What is the best route with transfer?', 
+    a: `The system automatically finds the optimal transfer route based on your origin and destination. Just select both stations and click "Find Bus" to see the best combination!` 
+  },
+  { 
+    q: 'How far is my destination?', 
+    a: `Distance varies by route. Example distances: Shivranjani to ISKCON = 12 km via Route 1 | Airport to ISKCON = 25 km via Route 15. Use map zoom to see exact distances.` 
+  },
+  { 
+    q: 'What are the operating hours?', 
+    a: `Janmarg Buses: 6:00 AM - 11:00 PM daily. Peak hours: 8-11 AM (Morning), 5-8 PM (Evening). Off-peak is less crowded!` 
+  }
 ]
 
 // LINEAR INTERPOLATION for smooth movement
@@ -216,6 +229,16 @@ const lerp = (start, end, progress) => start + (end - start) * progress
 // 📏 HELPER: Calculate distance between two coordinates (Haversine formula)
 const calculateDistance = (coord1, coord2) => {
   return getDistanceFromLatLonInKm(coord1[0], coord1[1], coord2[0], coord2[1])
+}
+
+// 📐 HELPER: Calculate total route distance by summing all segments
+const calculateTotalRouteDistance = (routeCoordinates) => {
+  if (!routeCoordinates || routeCoordinates.length < 2) return 0
+  let totalDistance = 0
+  for (let i = 0; i < routeCoordinates.length - 1; i++) {
+    totalDistance += calculateDistance(routeCoordinates[i], routeCoordinates[i + 1])
+  }
+  return totalDistance
 }
 
 // 🎯 HELPER: Calculate bearing angle between two coordinates
@@ -295,9 +318,10 @@ function MapController({ center }) {
 
 export default function App() {
   const [liveMode, setLiveMode] = useState(true)
-  const [selection, setSelection] = useState({ from: 'Shivranjani', to: 'ISKCON' })
-  const [showInsights, setShowInsights] = useState(true)
-  const [selectedRoute, setSelectedRoute] = useState('1')
+  const [selection, setSelection] = useState({ from: '', to: '' })
+  const [showInsights, setShowInsights] = useState(false)
+  const [showStartupScreen, setShowStartupScreen] = useState(true)
+  const [selectedRoute, setSelectedRoute] = useState(null)
   const [origin, setOrigin] = useState('')
   const [destination, setDestination] = useState('')
   const [countdownTime, setCountdownTime] = useState(240) // 4 minutes countdown
@@ -305,7 +329,7 @@ export default function App() {
   const [showChatbot, setShowChatbot] = useState(false)
   const [selectedFAQ, setSelectedFAQ] = useState(null)
   const [isRedirecting, setIsRedirecting] = useState(false)
-  const [mapCenter, setMapCenter] = useState(ROUTE_1_COORDINATES[3])
+  const [mapCenter, setMapCenter] = useState([23.0268, 72.5374]) // Default center of Ahmedabad
   // Real-time clock state
   const [currentTime, setCurrentTime] = useState(new Date())
   // Weather state
@@ -330,6 +354,42 @@ export default function App() {
   const [busIndex, setBusIndex] = useState(0)
   const [busStatus, setBusStatus] = useState('En Route')
   const [isBoarding, setIsBoarding] = useState(false)
+  // AI Backend Integration
+  const [aiData, setAiData] = useState(null)
+  const [isLoadingAI, setIsLoadingAI] = useState(false)
+  const [insightData, setInsightData] = useState(null)
+  const [isLoadingInsight, setIsLoadingInsight] = useState(false)
+  // Origin-based positioning
+  const [originIndex, setOriginIndex] = useState(0)
+  // Route segment highlighting (origin to destination)
+  const [originStationIndex, setOriginStationIndex] = useState(null)
+  const [destinationStationIndex, setDestinationStationIndex] = useState(null)
+  const [segmentCoordinates, setSegmentCoordinates] = useState(null)
+  // Multi-route transfer state
+  const [transferStation, setTransferStation] = useState(null)
+  const [firstRouteSegment, setFirstRouteSegment] = useState(null)
+  const [secondRouteSegment, setSecondRouteSegment] = useState(null)
+  const [firstRoute, setFirstRoute] = useState(null)
+  const [secondRoute, setSecondRoute] = useState(null)
+  const [routeDirection, setRouteDirection] = useState('D') // D = Down, U = Up
+
+  // Helper function to determine route direction based on station order
+  const getRouteDirection = (routeStations, originName, destName) => {
+    const originIdx = routeStations.findIndex(s => s.name === originName)
+    const destIdx = routeStations.findIndex(s => s.name === destName)
+    // If destination index is higher, it's Down (forward), otherwise Up (reverse)
+    return destIdx > originIdx ? 'D' : 'U'
+  }
+
+  // Get route display name with direction
+  const getRouteDisplayName = (routeId, direction) => {
+    return `${routeId}${direction}`
+  }
+  
+  // Get route direction label with arrow
+  const getRouteDirectionLabel = (direction) => {
+    return direction === 'D' ? '↓ Onward' : '↑ Return'
+  }
 
   const handleStationClick = async (station) => {
     setSelectedStation(station)
@@ -347,35 +407,38 @@ export default function App() {
   const hasStoppedAtRef = useRef(new Set()) // Track visited stations
 
   useEffect(() => {
+    // SELECT THE CORRECT PHYSICAL PATH based on selectedRoute
     let activePath = []
     let activeStations = []
 
-    switch (selectedRoute) {
-      case '15':
-        activePath = ROUTE_15_COORDINATES
-        activeStations = ROUTE_15_STATIONS
-        break
-      case '7':
-        activePath = ROUTE_7_COORDINATES
-        activeStations = ROUTE_7_STATIONS
-        break
-      default:
-        activePath = ROUTE_1_COORDINATES
-        activeStations = STATIONS
-        break
+    if (selectedRoute === '1') {
+      activePath = ROUTE_1_COORDINATES
+      activeStations = STATIONS
+    } else if (selectedRoute === '15') {
+      activePath = ROUTE_15_COORDINATES
+      activeStations = ROUTE_15_STATIONS
+    } else if (selectedRoute === '7') {
+      activePath = ROUTE_7_COORDINATES
+      activeStations = ROUTE_7_STATIONS
+    }
+
+    // Use segment coordinates if available (for origin-destination specific routes)
+    if (segmentCoordinates && segmentCoordinates.length > 0) {
+      activePath = segmentCoordinates
     }
 
     let segmentStartTime = null
     let currentIndex = 0
     let pauseStartTime = null
 
+    // RESET BUS STATE when selectedRoute changes
     isPausedRef.current = false
     hasStoppedAtRef.current = new Set()
     aiTriggeredRef.current = new Set()
 
     setBusStatus('En Route 🟢')
-    setBus1Progress(0)
-    setBus15Progress(0)
+    
+    // Don't reset bus progress here - it's set in handleRouteSwitch based on origin
 
     const totalSegments = Math.max(activePath.length - 1, 1)
 
@@ -394,8 +457,19 @@ export default function App() {
         }
       }
 
+      // Determine movement direction based on routeDirection
+      const movingForward = routeDirection === 'D'
+      
       const start = activePath[currentIndex]
-      const end = activePath[currentIndex + 1] || activePath[0]
+      const nextIndex = movingForward 
+        ? Math.min(currentIndex + 1, activePath.length - 1)
+        : Math.max(currentIndex - 1, 0)
+      const end = activePath[nextIndex]
+
+      if (!end || !start) {
+        requestAnimationFrame(animate)
+        return
+      }
 
       const distance = getDistanceFromLatLonInKm(start[0], start[1], end[0], end[1])
       const duration = Math.max((distance * 1000) / SPEED_FACTOR, 1)
@@ -415,12 +489,12 @@ export default function App() {
         hasStoppedAtRef.current.add(nearbyStation.id)
         isPausedRef.current = true
         pauseStartTime = timestamp
-        setBusStatus(`🛑 Route ${selectedRoute} Bus Stopped at ${nearbyStation.name} - Boarding...`)
+        setBusStatus(`🛑 Route ${selectedRoute} ${getRouteDirectionLabel(routeDirection)} • Stopped at ${nearbyStation.name}`)
         requestAnimationFrame(animate)
         return
       }
 
-      const overallProgress = (currentIndex + segmentProgress) / totalSegments
+      const overallProgress = currentIndex / Math.max(totalSegments, 1)
 
       if (selectedRoute === '1') {
         setBus1Progress(overallProgress)
@@ -431,7 +505,17 @@ export default function App() {
       }
 
       if (segmentProgress >= 1) {
-        currentIndex = (currentIndex + 1) % totalSegments
+        if (movingForward) {
+          currentIndex = Math.min(currentIndex + 1, totalSegments)
+          if (currentIndex >= totalSegments) {
+            currentIndex = 0 // Loop back
+          }
+        } else {
+          currentIndex = Math.max(currentIndex - 1, 0)
+          if (currentIndex <= 0) {
+            currentIndex = totalSegments - 1 // Loop back
+          }
+        }
         segmentStartTime = timestamp
       }
 
@@ -440,7 +524,29 @@ export default function App() {
 
     const raf = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(raf)
-  }, [selectedRoute])
+  }, [selectedRoute, routeDirection, segmentCoordinates])
+
+  // 🎯 ORIGIN-BASED POSITIONING: Position bus at origin station when incoming
+  useEffect(() => {
+    if (insightData?.origin_index !== undefined) {
+      setOriginIndex(insightData.origin_index)
+      
+      // Calculate progress to origin station
+      // Formula: originIndex / totalStops (approximately)
+      const totalStops = selectedRoute === '1' ? 6 : selectedRoute === '15' ? 14 : 5
+      const progressToOrigin = insightData.origin_index / totalStops
+      
+      // Position bus at origin with "Incoming" status
+      if (selectedRoute === '1') {
+        setBus1Progress(progressToOrigin)
+      } else if (selectedRoute === '15') {
+        setBus15Progress(progressToOrigin)
+      }
+      
+      // Update bus status
+      setBusStatus(`🚌 Incoming from Depot → ${insightData.origin_station}`)
+    }
+  }, [insightData?.origin_index, selectedRoute])
 
   // Route 12D continuous smooth animation (unchanged)
   useEffect(() => {
@@ -499,7 +605,51 @@ export default function App() {
     return () => clearInterval(interval)
   }, [])
 
-  // 🤖 TRANSIT-GUARD AI AGENT MONITORING (Active Every 15 Seconds)
+  // 🤖 SMART QUERY HANDLER - Answer custom questions
+  const handleCustomQuery = (query) => {
+    const q = query.toLowerCase()
+    
+    // Distance queries
+    if (q.includes('distance') || q.includes('how far') || q.includes('km')) {
+      const distances = {
+        'shivranjani to iskcon': '12 km via Route 1',
+        'iskcon to airport': '25 km via Route 15',
+        'rto to vishwakarma': '8 km via Route 7',
+        'airport to iskcon': '25 km via Route 15 (Return)',
+        'ranip to rto': '2 km via Route 7'
+      }
+      
+      for (const [route, dist] of Object.entries(distances)) {
+        if (q.includes(route.split(' to ')[0]) && q.includes(route.split(' to ')[1])) {
+          return `📍 Distance: ${dist}`
+        }
+      }
+      return '📍 Common routes: Shivranjani↔ISKCON (12km), ISKCON↔Airport (25km), Ranip↔Vishwakarma (8km). Select origin & destination to calculate exact distance.'
+    }
+    
+    // Fare queries
+    if (q.includes('fare') || q.includes('cost') || q.includes('price') || q.includes('₹')) {
+      return `💰 Janmarg Fare Structure:\n• Base fare: ₹5 (up to 5 km)\n• Additional: ₹2 per km beyond 5 km\n• Example: 12 km journey = ₹19\nDiscount: 20% off with Janmarg card`
+    }
+    
+    // Operating hours
+    if (q.includes('operating') || q.includes('hours') || q.includes('timing') || q.includes('schedule')) {
+      return `⏰ Operating Hours:\n• Morning: 6:00 AM - 11:00 PM\n• Peak hours: 8-11 AM, 5-8 PM (More crowded)\n• Off-peak: 11 AM - 5 PM (Comfortable)\n• Frequency: Every 2-8 mins based on route & time`
+    }
+    
+    // Transfer queries
+    if (q.includes('transfer') || q.includes('change') || q.includes('connect')) {
+      return `🔄 Smart Transfer System:\n• Automatically finds best route combination\n• Picks optimal transfer stations (RTO Circle, Ranip Cross-Road)\n• Shows both route segments on map\n• Avoid backtracking with directional routing (↓ Onward / ↑ Return)`
+    }
+    
+    // Route info
+    if (q.includes('route') || q.includes('which bus')) {
+      return `🚌 Available Routes:\n• Route 1D: Shivranjani ↔ ISKCON (6 stops)\n• Route 15D: ISKCON ↔ Airport (14 stops)\n• Route 7D: Ranip ↔ Vishwakarma (7 stops)\nSelect origin & destination to find your route!`
+    }
+    
+    // Default response
+    return `💡 I can help with:\n✓ Fares & pricing\n✓ Route distances\n✓ Operating hours\n✓ Transfer routes\n✓ Route information\n\nTry asking: "What is the fare?" or "How far is my destination?"`
+  }
   useEffect(() => {
     const agentInterval = setInterval(() => {
       const alertData = generateAgentAlert()
@@ -531,6 +681,48 @@ export default function App() {
     return () => clearInterval(interval)
   }, [showInsights, selectedRoute])
 
+  // 🤖 AI BACKEND INTEGRATION: Fetch real-time predictions when insights are shown or route changes
+  useEffect(() => {
+    if (!showInsights) return
+
+    const fetchAIData = async () => {
+      setIsLoadingAI(true)
+      setIsLoadingInsight(true)
+      try {
+        // Get the current route coordinates
+        let routeCoordinates = ROUTE_1_COORDINATES
+        switch (selectedRoute) {
+          case '15':
+            routeCoordinates = ROUTE_15_COORDINATES
+            break
+          case '7':
+            routeCoordinates = ROUTE_7_COORDINATES
+            break
+          default:
+            routeCoordinates = ROUTE_1_COORDINATES
+        }
+
+        // Calculate total route distance
+        const totalDistance = calculateTotalRouteDistance(routeCoordinates)
+
+        // Fetch detailed analytics (for route prediction)
+        const analyticsData = await fetchRouteAnalytics(selectedRoute)
+        setAiData(analyticsData)
+
+        // Fetch dynamic insight data based on calculated distance
+        const insightDataFromAPI = await fetchRouteInsight(totalDistance)
+        setInsightData(insightDataFromAPI)
+      } catch (error) {
+        console.error('Failed to fetch AI data:', error)
+      } finally {
+        setIsLoadingAI(false)
+        setIsLoadingInsight(false)
+      }
+    }
+
+    fetchAIData()
+  }, [showInsights, selectedRoute])
+
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
@@ -545,49 +737,372 @@ export default function App() {
   }
 
   const handleSelection = (field, value) => {
-    setSelection(prev => ({ ...prev, [field]: value }))
+    const newSelection = { ...selection, [field]: value }
+    setSelection(newSelection)
+    // Don't hide startup screen here - only hide on selection confirmation
+    
+    // Only show insights when BOTH origin and destination are selected
+    if (newSelection.from && newSelection.to) {
+      setShowInsights(true)
+    } else {
+      setShowInsights(false)
+    }
   }
 
-  const findRoute = () => {
-    if (!origin || !destination) {
+  const handleStartupSelection = (field, value) => {
+    // This handler closes startup screen only when user selects
+    handleSelection(field, value)
+    // Note: don't close startup screen yet - wait for button click
+  }
+
+  const handleContinue = () => {
+    if (selection.from && selection.to) {
+      // Call with params first, then update state
+      findRouteWithParams(selection.from, selection.to)
+      setOrigin(selection.from)
+      setDestination(selection.to)
+      setShowStartupScreen(false)
+    }
+  }
+
+  const findRouteWithParams = (fromLocation, toLocation) => {
+    let foundRoute = null
+    let originIdx = -1
+    let destIdx = -1
+
+    for (const [routeId, stations] of Object.entries(ROUTE_MAP)) {
+      originIdx = stations.findIndex(s => s.name === fromLocation)
+      destIdx = stations.findIndex(s => s.name === toLocation)
+
+      if (originIdx !== -1 && destIdx !== -1) {
+        foundRoute = routeId
+        const direction = getRouteDirection(stations, fromLocation, toLocation)
+        
+        let routeCoords = routeId === '1' ? ROUTE_1_COORDINATES : routeId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+        const originStation = stations[originIdx]
+        const destStation = stations[destIdx]
+        const originCoordIdx = findClosestCoordinateIndex(routeCoords, originStation.coords)
+        const destCoordIdx = findClosestCoordinateIndex(routeCoords, destStation.coords)
+        
+        const startIdx = Math.min(originCoordIdx, destCoordIdx)
+        const endIdx = Math.max(originCoordIdx, destCoordIdx)
+        const segment = routeCoords.slice(startIdx, endIdx + 1)
+        
+        setOriginStationIndex(originIdx)
+        setDestinationStationIndex(destIdx)
+        setSegmentCoordinates(segment)
+        setRouteDirection(direction)
+        setTransferStation(null)
+        setFirstRouteSegment(null)
+        setSecondRouteSegment(null)
+        setFirstRoute(null)
+        setSecondRoute(null)
+        
+        if (segment && segment.length > 0) {
+          const midIdx = Math.floor(segment.length / 2)
+          setMapCenter(segment[midIdx])
+        }
+        
+        setSelectedRoute(routeId)
+        handleRouteSwitch(routeId, fromLocation)
+        return
+      }
+    }
+  }
+
+  const findRoute = (fromLocation = null, toLocation = null) => {
+    const originValue = fromLocation || origin
+    const destinationValue = toLocation || destination
+    
+    if (!originValue || !destinationValue) {
       alert('Please select both a Start Location and a Destination.')
       return
     }
 
+    // Set state to show insights panel
+    setOrigin(originValue)
+    setDestination(destinationValue)
+
     let foundRoute = null
+    let originIdx = -1
+    let destIdx = -1
+    let originRouteId = null
+    let destRouteId = null
 
+    // First, check for direct routes (origin and destination on same route)
     for (const [routeId, stations] of Object.entries(ROUTE_MAP)) {
-      const hasOrigin = stations.some(s => s.name === origin || s.id?.toString() === origin)
-      const hasDest = stations.some(s => s.name === destination || s.id?.toString() === destination)
+      originIdx = stations.findIndex(s => s.name === originValue || s.id?.toString() === originValue)
+      destIdx = stations.findIndex(s => s.name === destinationValue || s.id?.toString() === destinationValue)
 
-      if (hasOrigin && hasDest) {
+      if (originIdx !== -1 && destIdx !== -1) {
         foundRoute = routeId
+        
+        // Determine route direction
+        const direction = getRouteDirection(stations, originValue, destinationValue)
+        
+        // Calculate route segment coordinates
+        let routeCoords = []
+        if (routeId === '1') {
+          routeCoords = ROUTE_1_COORDINATES
+        } else if (routeId === '15') {
+          routeCoords = ROUTE_15_COORDINATES
+        } else if (routeId === '7') {
+          routeCoords = ROUTE_7_COORDINATES
+        }
+        
+        // Extract segment between origin and destination stations
+        const originStation = stations[originIdx]
+        const destStation = stations[destIdx]
+        
+        // Find closest coordinate indices for origin and destination
+        const originCoordIdx = findClosestCoordinateIndex(routeCoords, originStation.coords)
+        const destCoordIdx = findClosestCoordinateIndex(routeCoords, destStation.coords)
+        
+        // Ensure correct order (handle reverse direction)
+        const startIdx = Math.min(originCoordIdx, destCoordIdx)
+        const endIdx = Math.max(originCoordIdx, destCoordIdx)
+        
+        // Extract segment
+        const segment = routeCoords.slice(startIdx, endIdx + 1)
+        
+        setOriginStationIndex(originIdx)
+        setDestinationStationIndex(destIdx)
+        setSegmentCoordinates(segment)
+        setRouteDirection(direction)
+        
+        // Clear transfer state for direct routes
+        setTransferStation(null)
+        setFirstRouteSegment(null)
+        setSecondRouteSegment(null)
+        setFirstRoute(null)
+        setSecondRoute(null)
+        
         break
       }
     }
 
+    // If no direct route found, check for transfer routes
+    if (!foundRoute) {
+      // Find ALL routes that have origin and destination
+      const routesWithOrigin = []
+      const routesWithDest = []
+      
+      for (const [routeId, stations] of Object.entries(ROUTE_MAP)) {
+        const originIndex = stations.findIndex(s => s.name === originValue || s.id?.toString() === originValue)
+        const destIndex = stations.findIndex(s => s.name === destinationValue || s.id?.toString() === destinationValue)
+        
+        if (originIndex !== -1) {
+          routesWithOrigin.push({ routeId, index: originIndex, stations })
+        }
+        if (destIndex !== -1) {
+          routesWithDest.push({ routeId, index: destIndex, stations })
+        }
+      }
+
+      // Try to find a route combination with a common transfer station
+      let bestTransfer = null
+      
+      for (const originRoute of routesWithOrigin) {
+        for (const destRoute of routesWithDest) {
+          if (originRoute.routeId === destRoute.routeId) continue // Skip same route
+          
+          // Determine direction for origin route
+          const originDirection = getRouteDirection(originRoute.stations, originValue, '')
+          
+          // Find common stations between these two routes
+          // AND check if they're in the correct direction of travel
+          for (let i = 0; i < originRoute.stations.length; i++) {
+            for (let j = 0; j < destRoute.stations.length; j++) {
+              if (originRoute.stations[i].name === destRoute.stations[j].name) {
+                const transferStationName = originRoute.stations[i].name
+                
+                // Check if this transfer station is "on the way" in both routes
+                const originToTransferValid = (originRoute.index < i) // Transfer is after origin
+                const transferToDestValid = (j < destRoute.index) // Dest is after transfer
+                
+                // Only consider this transfer if it's in the right direction
+                if (originToTransferValid && transferToDestValid) {
+                  bestTransfer = {
+                    originRouteId: originRoute.routeId,
+                    destRouteId: destRoute.routeId,
+                    originIdx: originRoute.index,
+                    destIdx: destRoute.index,
+                    transferStation: transferStationName,
+                    transferIdxOriginRoute: i,
+                    transferIdxDestRoute: j,
+                    originStations: originRoute.stations,
+                    destStations: destRoute.stations,
+                    originDirection: i > originRoute.index ? 'D' : 'U',
+                    destDirection: destRoute.index > j ? 'D' : 'U'
+                  }
+                  break
+                }
+              }
+            }
+            if (bestTransfer) break
+          }
+          if (bestTransfer) break
+        }
+        if (bestTransfer) break
+      }
+
+      if (bestTransfer) {
+        const { originRouteId, destRouteId, originIdx, destIdx, transferStation, 
+                transferIdxOriginRoute, transferIdxDestRoute, originStations, destStations,
+                originDirection, destDirection } = bestTransfer
+        
+        if (transferStation) {
+          // Calculate first segment: origin to transfer station
+          let route1Coords = originRouteId === '1' ? ROUTE_1_COORDINATES : 
+                            originRouteId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+          
+          const originStation = originStations[originIdx]
+          const transferStationObj = originStations[transferIdxOriginRoute]
+          
+          const originCoordIdx = findClosestCoordinateIndex(route1Coords, originStation.coords)
+          const transferCoordIdx1 = findClosestCoordinateIndex(route1Coords, transferStationObj.coords)
+          
+          const seg1Start = Math.min(originCoordIdx, transferCoordIdx1)
+          const seg1End = Math.max(originCoordIdx, transferCoordIdx1)
+          const segment1 = route1Coords.slice(seg1Start, seg1End + 1)
+
+          // Calculate second segment: transfer station to destination
+          let route2Coords = destRouteId === '1' ? ROUTE_1_COORDINATES : 
+                            destRouteId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+          
+          const transferStationObj2 = destStations[transferIdxDestRoute]
+          const destStation = destStations[destIdx]
+          
+          const transferCoordIdx2 = findClosestCoordinateIndex(route2Coords, transferStationObj2.coords)
+          const destCoordIdx = findClosestCoordinateIndex(route2Coords, destStation.coords)
+          
+          const seg2Start = Math.min(transferCoordIdx2, destCoordIdx)
+          const seg2End = Math.max(transferCoordIdx2, destCoordIdx)
+          const segment2 = route2Coords.slice(seg2Start, seg2End + 1)
+
+          // Set transfer route state with direction info
+          setTransferStation(transferStation)
+          setFirstRouteSegment(segment1)
+          setSecondRouteSegment(segment2)
+          setFirstRoute(getRouteDisplayName(originRouteId, originDirection))
+          setSecondRoute(getRouteDisplayName(destRouteId, destDirection))
+          setOriginStationIndex(originIdx)
+          setDestinationStationIndex(destIdx)
+          setSegmentCoordinates(null) // Clear single segment
+          
+          // Calculate center point between both segments for map focus
+          if (segment1.length > 0 && segment2.length > 0) {
+            const midPoint1 = segment1[Math.floor(segment1.length / 2)]
+            const midPoint2 = segment2[Math.floor(segment2.length / 2)]
+            const centerLat = (midPoint1[0] + midPoint2[0]) / 2
+            const centerLon = (midPoint1[1] + midPoint2[1]) / 2
+            setMapCenter([centerLat, centerLon])
+          }
+          
+          // Set selectedRoute to show first route context
+          setSelectedRoute(originRouteId)
+          
+          return
+        }
+      }
+      
+      alert(`No route found between ${originValue} and ${destinationValue}.\n\nPlease check station names or try different stations.`)
+      return
+    }
+
     if (foundRoute) {
-      handleRouteSwitch(foundRoute)
-    } else {
-      alert(`No direct bus found between ${origin} and ${destination}. Try a transfer!`)
+      // Send origin and route_id to backend for ETA calculation
+      handleRouteSwitch(foundRoute, originValue)
     }
   }
+  
+  // Helper function to find closest coordinate index to a station
+  const findClosestCoordinateIndex = (coordinates, stationCoords) => {
+    let minDistance = Infinity
+    let closestIndex = 0
+    
+    coordinates.forEach((coord, idx) => {
+      const distance = getDistanceFromLatLonInKm(coord[0], coord[1], stationCoords[0], stationCoords[1])
+      if (distance < minDistance) {
+        minDistance = distance
+        closestIndex = idx
+      }
+    })
+    
+    return closestIndex
+  }
 
-  const handleRouteSwitch = (routeId) => {
+  const handleRouteSwitch = (routeId, originStation = null) => {
     setSelectedRoute(routeId)
-    setBus1Progress(0)
-    setBus15Progress(0)
+    // Store origin for origin-based ETA
+    if (originStation) {
+      setOrigin(originStation)
+      
+      // Calculate bus starting position based on origin station
+      let routeCoords = routeId === '1' ? ROUTE_1_COORDINATES : 
+                       routeId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+      let stations = routeId === '1' ? STATIONS : 
+                     routeId === '15' ? ROUTE_15_STATIONS : ROUTE_7_STATIONS
+      
+      const originStationObj = stations.find(s => s.name === originStation)
+      if (originStationObj && routeCoords.length > 0) {
+        const originCoordIdx = findClosestCoordinateIndex(routeCoords, originStationObj.coords)
+        const initialProgress = originCoordIdx / routeCoords.length
+        
+        // Set bus to start at origin position
+        if (routeId === '1') {
+          setBus1Progress(initialProgress)
+        } else if (routeId === '15') {
+          setBus15Progress(initialProgress)
+        }
+      } else {
+        // No origin specified, start from beginning
+        setBus1Progress(0)
+        setBus15Progress(0)
+      }
+    } else {
+      setBus1Progress(0)
+      setBus15Progress(0)
+    }
+    
     setBus1Bearing(0)
     setBus15Bearing(0)
     setBusIndex(0)
     setSelectedStation(null)
-    setMapCenter(
-      routeId === '1'
-        ? ROUTE_1_COORDINATES[3]
-        : routeId === '15'
-          ? ROUTE_15_COORDINATES[3]
-          : [23.085, 72.590]
-    )
+    
+    // Fetch origin-based ETA from backend if origin is provided
+    if (originStation && routeId) {
+      fetchOriginBasedETA(routeId, originStation)
+    }
+    
+    // Center map on segment midpoint if segment exists, otherwise use default
+    if (segmentCoordinates && segmentCoordinates.length > 0) {
+      const midIdx = Math.floor(segmentCoordinates.length / 2)
+      setMapCenter(segmentCoordinates[midIdx])
+    } else {
+      setMapCenter(
+        routeId === '1'
+          ? ROUTE_1_COORDINATES[3]
+          : routeId === '15'
+            ? ROUTE_15_COORDINATES[3]
+            : [23.085, 72.590]
+      )
+    }
+  }
+
+  // Fetch origin-based ETA from backend
+  const fetchOriginBasedETA = async (routeId, originStationName) => {
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/insight?route_id=${routeId}&origin_station_name=${encodeURIComponent(originStationName)}`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setInsightData(data)
+      }
+    } catch (error) {
+      console.error('Error fetching origin-based ETA:', error)
+    }
   }
 
   useEffect(() => {
@@ -616,7 +1131,68 @@ export default function App() {
   const startNode = currentStations[0]?.name || 'Start'
   const endNode = currentStations[currentStations.length - 1]?.name || 'End'
   const activeProgress = selectedRoute === '1' ? bus1Progress : bus15Progress
-  const etaMinutes = Math.max(2, Math.round((1 - activeProgress) * 12))
+  
+  // Dynamic ETA calculation based on bus position and proximity to origin
+  const originStation = currentStations.find(s => s.name === origin)
+  const stationIndex = originStation ? currentStations.findIndex(s => s.name === origin) : -1
+  const totalStations = currentStations.length
+  const frequencyMinutes = selectedRoute === '1' ? 2.5 : selectedRoute === '15' ? 3 : 2.5
+  const baseTime = currentBusData.baseTime || 12
+  
+  // Get active route coordinates for better distance calculation
+  let activePath = []
+  if (selectedRoute === '1') {
+    activePath = ROUTE_1_COORDINATES
+  } else if (selectedRoute === '15') {
+    activePath = ROUTE_15_COORDINATES
+  } else if (selectedRoute === '7') {
+    activePath = ROUTE_7_COORDINATES
+  }
+  if (segmentCoordinates && segmentCoordinates.length > 0) {
+    activePath = segmentCoordinates
+  }
+  
+  // Calculate current bus position and distance to origin station
+  let dynamicETA = Math.max(2, Math.round((1 - activeProgress) * baseTime))
+  let busStatusMessage = 'En Route'
+  let isApproaching = false
+  let hasLeft = false
+  
+  if (stationIndex !== -1 && activePath.length > 0 && originStation) {
+    // Get bus current position on route
+    const busPositionIndex = Math.floor(activeProgress * (activePath.length - 1))
+    const busPosition = activePath[busPositionIndex]
+    
+    // Calculate actual geographic distance to origin station
+    if (busPosition) {
+      const distToOriginKm = getDistanceFromLatLonInKm(
+        busPosition[0], busPosition[1],
+        originStation.coords[0], originStation.coords[1]
+      )
+      
+      // Convert km to minutes (accounting for stops, traffic, etc.)
+      // ~0.2 km/min = ~12 km/h (realistic city bus with frequent stops)
+      const etaFromDistance = Math.ceil(distToOriginKm / 0.2)
+      
+      // If within 0.5 km (about 2.5 minutes at realistic speed)
+      if (distToOriginKm < 0.5 && activeProgress < (stationIndex / totalStations)) {
+        busStatusMessage = '🚌 BUS APPROACHING'
+        isApproaching = true
+        dynamicETA = Math.max(1, etaFromDistance)
+      }
+      // If bus has passed the station (by geographic distance)
+      else if (activeProgress > (stationIndex / totalStations)) {
+        hasLeft = true
+        busStatusMessage = '✓ Bus Left - Next Bus'
+        dynamicETA = Math.round(frequencyMinutes)
+      } else {
+        // Normal en route, use distance-based ETA
+        dynamicETA = Math.max(2, etaFromDistance)
+      }
+    }
+  }
+  
+  const etaMinutes = dynamicETA
 
   const getGradientColor = (value) => {
     if (value < 33) return '#00ff99'
@@ -626,6 +1202,215 @@ export default function App() {
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: '#0a0a0a' }}>
+      {/* STARTUP WELCOME SCREEN - Centered Card Overlay */}
+      <AnimatePresence>
+        {showStartupScreen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.6)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              zIndex: 9999,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: '24px',
+            }}
+            onClick={() => setShowStartupScreen(false)}
+          >
+            {/* CENTERED CARD */}
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.4, type: 'spring', stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+              style={{
+                background: 'linear-gradient(135deg, rgba(10, 15, 30, 0.95) 0%, rgba(20, 35, 70, 0.95) 100%)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                borderRadius: '24px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                padding: '48px 40px',
+                maxWidth: '500px',
+                width: '100%',
+                boxShadow: '0 25px 50px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              {/* APP LOGO */}
+              <div style={{ fontSize: '48px', marginBottom: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                <Bus size={48} color="#2979ff" />
+                <span style={{ background: 'linear-gradient(135deg, #2979ff 0%, #00d4ff 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+                  Transit-Flow AI
+                </span>
+              </div>
+
+              {/* TAGLINE */}
+              <h1 style={{ fontSize: '28px', fontWeight: 700, marginBottom: '8px', color: '#fff', letterSpacing: '-0.5px', textAlign: 'center' }}>
+                Smart Bus Navigation
+              </h1>
+              
+              <p style={{ fontSize: '14px', color: '#aaa', marginBottom: '32px', lineHeight: '1.6', textAlign: 'center' }}>
+                Real-time tracking • AI predictions • Live updates for Ahmedabad BRTS
+              </p>
+
+              {/* SEARCH PROMPTS */}
+              <p style={{ fontSize: '12px', color: '#666', marginBottom: '16px', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px', textAlign: 'center' }}>
+                📍 WHERE DO YOU WANT TO GO?
+              </p>
+
+              {/* START LOCATION INPUT WITH DROPDOWN */}
+              <div style={{ position: 'relative', marginBottom: '12px' }}>
+                <input
+                  type="text"
+                  list="startLocationList"
+                  value={selection.from}
+                  onChange={(e) => setSelection({ ...selection, from: e.target.value })}
+                  placeholder="📍 Start Location (type or select)..."
+                  style={{
+                    width: '100%',
+                    padding: '14px 16px',
+                    background: 'rgba(41, 121, 255, 0.15)',
+                    border: '1px solid rgba(41, 121, 255, 0.4)',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    outline: 'none',
+                    transition: 'all 0.3s',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.background = 'rgba(41, 121, 255, 0.25)'
+                    e.target.style.borderColor = 'rgba(41, 121, 255, 0.7)'
+                    e.target.style.boxShadow = '0 0 16px rgba(41, 121, 255, 0.3)'
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.background = 'rgba(41, 121, 255, 0.15)'
+                    e.target.style.borderColor = 'rgba(41, 121, 255, 0.4)'
+                    e.target.style.boxShadow = 'none'
+                    handleStartupSelection('from', e.target.value)
+                  }}
+                />
+                <datalist id="startLocationList">
+                  {UNIQUE_STATIONS && UNIQUE_STATIONS.map((station) => (
+                    <option key={station} value={station} />
+                  ))}
+                </datalist>
+              </div>
+
+              {/* DESTINATION INPUT WITH DROPDOWN */}
+              <div style={{ position: 'relative', marginBottom: '24px' }}>
+                <input
+                  type="text"
+                  list="destinationList"
+                  value={selection.to}
+                  onChange={(e) => setSelection({ ...selection, to: e.target.value })}
+                  placeholder="🎯 Destination (type or select)..."
+                  style={{
+                    width: '100%',
+                    padding: '14px 16px',
+                    background: 'rgba(0, 255, 153, 0.15)',
+                    border: '1px solid rgba(0, 255, 153, 0.4)',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    outline: 'none',
+                    transition: 'all 0.3s',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.background = 'rgba(0, 255, 153, 0.25)'
+                    e.target.style.borderColor = 'rgba(0, 255, 153, 0.7)'
+                    e.target.style.boxShadow = '0 0 16px rgba(0, 255, 153, 0.3)'
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.background = 'rgba(0, 255, 153, 0.15)'
+                    e.target.style.borderColor = 'rgba(0, 255, 153, 0.4)'
+                    e.target.style.boxShadow = 'none'
+                    handleStartupSelection('to', e.target.value)
+                  }}
+                />
+                <datalist id="destinationList">
+                  {UNIQUE_STATIONS && UNIQUE_STATIONS.map((station) => (
+                    <option key={station} value={station} />
+                  ))}
+                </datalist>
+              </div>
+
+              {/* FEATURES GRID */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+                <div style={{ padding: '12px', background: 'rgba(255, 0, 85, 0.1)', borderRadius: '10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', marginBottom: '4px' }}>⚡</div>
+                  <div style={{ fontSize: '10px', color: '#aaa', fontWeight: 600 }}>Real-Time</div>
+                </div>
+                <div style={{ padding: '12px', background: 'rgba(0, 255, 153, 0.1)', borderRadius: '10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', marginBottom: '4px' }}>🤖</div>
+                  <div style={{ fontSize: '10px', color: '#aaa', fontWeight: 600 }}>AI Powered</div>
+                </div>
+                <div style={{ padding: '12px', background: 'rgba(0, 170, 255, 0.1)', borderRadius: '10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', marginBottom: '4px' }}>👥</div>
+                  <div style={{ fontSize: '10px', color: '#aaa', fontWeight: 600 }}>Live Updates</div>
+                </div>
+              </div>
+
+              {/* CONTINUE BUTTON */}
+              <button
+                onClick={() => {
+                  if (selection.from && selection.to) {
+                    findRoute(selection.from, selection.to)
+                    setShowStartupScreen(false)
+                  }
+                }}
+                disabled={!selection.from || !selection.to}
+                style={{
+                  width: '100%',
+                  padding: '14px 24px',
+                  background: selection.from && selection.to ? 'linear-gradient(135deg, #2979ff 0%, #00d4ff 100%)' : 'rgba(100, 100, 100, 0.3)',
+                  border: 'none',
+                  borderRadius: '12px',
+                  color: '#fff',
+                  fontSize: '16px',
+                  fontWeight: 700,
+                  cursor: selection.from && selection.to ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.3s',
+                  boxShadow: selection.from && selection.to ? '0 0 20px rgba(41, 121, 255, 0.5)' : 'none',
+                }}
+                onMouseEnter={(e) => {
+                  if (selection.from && selection.to) {
+                    e.target.style.boxShadow = '0 0 30px rgba(41, 121, 255, 0.8)'
+                    e.target.style.transform = 'scale(1.02)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (selection.from && selection.to) {
+                    e.target.style.boxShadow = '0 0 20px rgba(41, 121, 255, 0.5)'
+                    e.target.style.transform = 'scale(1)'
+                  }
+                }}
+              >
+                Find Bus 🔍
+              </button>
+
+              {/* CLOSE HINT */}
+              <p style={{ fontSize: '11px', color: '#666', textAlign: 'center', marginTop: '16px' }}>
+                Select both locations and click Find Bus
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* MAP */}
       <MapContainer
         center={[23.0268, 72.5374]}
@@ -640,98 +1425,286 @@ export default function App() {
         <MapController center={mapCenter} />
 
         {/* NEON GLOWING ROUTES - SUPER-DENSE BRTS CORRIDOR */}
-        {selectedRoute === '1' && (
+        {/* Multi-Route Transfer Visualization */}
+        {transferStation && firstRouteSegment && secondRouteSegment ? (
           <>
-            <Polyline 
-              positions={ROUTE_1_COORDINATES} 
-              pathOptions={{ 
-                color: '#ff0055', 
-                weight: 8, 
-                opacity: 0.4,
-                lineCap: 'round',
-                lineJoin: 'round'
-              }} 
-            />
-            <Polyline 
-              positions={ROUTE_1_COORDINATES} 
-              pathOptions={{ 
-                color: '#ffffff', 
-                weight: 2, 
-                opacity: 1,
-                lineCap: 'round',
-                lineJoin: 'round'
-              }} 
-            />
+            {/* First Route Segment - SOLID */}
+            {firstRoute && firstRoute[0] === '1' && (
+              <>
+                <Polyline 
+                  positions={firstRouteSegment} 
+                  pathOptions={{ 
+                    color: '#ff0055', 
+                    weight: 8, 
+                    opacity: 0.4,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }} 
+                />
+                <Polyline 
+                  positions={firstRouteSegment} 
+                  pathOptions={{ 
+                    color: '#ffffff', 
+                    weight: 2, 
+                    opacity: 1,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }} 
+                />
+              </>
+            )}
+            {firstRoute && firstRoute[0] === '1' && firstRoute[1] === '5' && (
+              <Polyline 
+                positions={firstRouteSegment} 
+                pathOptions={{ 
+                  color: '#00aaff', 
+                  weight: 8, 
+                  opacity: 0.8,
+                  lineCap: 'round',
+                  lineJoin: 'round'
+                }} 
+              />
+            )}
+            {firstRoute && firstRoute[0] === '7' && (
+              <Polyline 
+                positions={firstRouteSegment} 
+                pathOptions={{ 
+                  color: '#cc00ff', 
+                  weight: 8, 
+                  opacity: 0.85,
+                  lineCap: 'round',
+                  lineJoin: 'round'
+                }} 
+              />
+            )}
+            
+            {/* Second Route Segment - DASHED */}
+            {secondRoute && secondRoute[0] === '1' && (
+              <>
+                <Polyline 
+                  positions={secondRouteSegment} 
+                  pathOptions={{ 
+                    color: '#ff0055', 
+                    weight: 8, 
+                    opacity: 0.4,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    dashArray: '10, 10' // Dashed to distinguish second segment
+                  }} 
+                />
+                <Polyline 
+                  positions={secondRouteSegment} 
+                  pathOptions={{ 
+                    color: '#ffffff', 
+                    weight: 2, 
+                    opacity: 1,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }} 
+                />
+              </>
+            )}
+            {secondRoute && secondRoute[0] === '1' && secondRoute[1] === '5' && (
+              <Polyline 
+                positions={secondRouteSegment} 
+                pathOptions={{ 
+                  color: '#00aaff', 
+                  weight: 8, 
+                  opacity: 0.8,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  dashArray: '10, 10'
+                }} 
+              />
+            )}
+            {secondRoute && secondRoute[0] === '7' && (
+              <Polyline 
+                positions={secondRouteSegment} 
+                pathOptions={{ 
+                  color: '#cc00ff', 
+                  weight: 8, 
+                  opacity: 0.85,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  dashArray: '10, 10'
+                }} 
+              />
+            )}
           </>
-        )}
-
-        {/* ✈️ ROUTE 15: AIRPORT EXPRESS (Blue Neon Line) */}
-        {selectedRoute === '15' && (
+        ) : (
           <>
-            <Polyline 
-              positions={ROUTE_15_COORDINATES} 
-              pathOptions={{ 
-                color: '#00aaff', 
-                weight: 6, 
-                opacity: 0.8,
-                lineCap: 'round',
-                lineJoin: 'round'
-              }} 
-            />
-          </>
-        )}
+            {/* Single Route Display (no transfer) */}
+            {selectedRoute === '1' && (
+              <>
+                <Polyline 
+                  positions={segmentCoordinates || ROUTE_1_COORDINATES} 
+                  pathOptions={{ 
+                    color: '#ff0055', 
+                    weight: 8, 
+                    opacity: 0.4,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }} 
+                />
+                <Polyline 
+                  positions={segmentCoordinates || ROUTE_1_COORDINATES} 
+                  pathOptions={{ 
+                    color: '#ffffff', 
+                    weight: 2, 
+                    opacity: 1,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }} 
+                />
+              </>
+            )}
 
-        {/* 🏟️ ROUTE 7: AIRPORT -> MOTERA STADIUM (Neon Purple Line) */}
-        {selectedRoute === '7' && (
-          <>
-            <Polyline
-              positions={ROUTE_7_COORDINATES}
-              pathOptions={{
-                color: '#cc00ff',
-                weight: 6,
-                opacity: 0.85,
-                lineCap: 'round',
-                lineJoin: 'round'
-              }}
-            />
+            {/* ✈️ ROUTE 15: AIRPORT EXPRESS (Blue Neon Line) */}
+            {selectedRoute === '15' && (
+              <>
+                <Polyline 
+                  positions={segmentCoordinates || ROUTE_15_COORDINATES} 
+                  pathOptions={{ 
+                    color: '#00aaff', 
+                    weight: 6, 
+                    opacity: 0.8,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }} 
+                />
+              </>
+            )}
+
+            {/* 🏟️ ROUTE 7: AIRPORT -> MOTERA STADIUM (Neon Purple Line) */}
+            {selectedRoute === '7' && (
+              <>
+                <Polyline
+                  positions={segmentCoordinates || ROUTE_7_COORDINATES}
+                  pathOptions={{
+                    color: '#cc00ff',
+                    weight: 6,
+                    opacity: 0.85,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }}
+                />
+              </>
+            )}
           </>
         )}
 
         {/* 🚏 OFFICIAL STATION MARKERS (Click to view live info) */}
-        {(selectedRoute === '15'
-          ? ROUTE_15_STATIONS
-          : selectedRoute === '7'
-            ? ROUTE_7_STATIONS
-            : STATIONS
-        ).map((station) => (
-          <CircleMarker
-            key={`station-${station.id}`}
-            center={station.coords}
-            radius={selectedRoute === '15' || selectedRoute === '7' ? 8 : 6}
-            pathOptions={{
-              color: selectedStation?.id === station.id
-                ? '#00eaff'
-                : (selectedRoute === '15'
+        {/* Show stations from both routes when transfer is active */}
+        {transferStation && firstRoute && secondRoute ? (
+          <>
+            {/* Stations from first route segment */}
+            {(firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS).map((station) => (
+              <CircleMarker
+                key={`station-first-${station.id}`}
+                center={station.coords}
+                radius={station.name === transferStation ? 12 : 8}
+                pathOptions={{
+                  color: station.name === transferStation 
+                    ? '#ffa500' 
+                    : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                  fillColor: station.name === transferStation 
+                    ? '#ffa500' 
+                    : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                  fillOpacity: 1
+                }}
+                weight={station.name === transferStation ? 3 : 2}
+                opacity={1}
+                eventHandlers={{
+                  click: () => handleStationClick(station)
+                }}
+              >
+                <Popup>
+                  {station.name === transferStation ? (
+                    <div style={{ textAlign: 'center' }}>
+                      <strong>🔄 TRANSFER STATION</strong><br/>
+                      {station.name}
+                    </div>
+                  ) : (
+                    station.name
+                  )}
+                </Popup>
+              </CircleMarker>
+            ))}
+            
+            {/* Stations from second route segment */}
+            {(secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
+              .filter(station => station.name !== transferStation) // Don't duplicate transfer station
+              .map((station) => (
+                <CircleMarker
+                  key={`station-second-${station.id}`}
+                  center={station.coords}
+                  radius={8}
+                  pathOptions={{
+                    color: secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : '#ff0055',
+                    fillColor: secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : '#ff0055',
+                    fillOpacity: 1
+                  }}
+                  weight={2}
+                  opacity={1}
+                  eventHandlers={{
+                    click: () => handleStationClick(station)
+                  }}
+                >
+                  <Popup>{station.name}</Popup>
+                </CircleMarker>
+              ))}
+          </>
+        ) : (
+          /* Single route - show only selected route stations */
+          (selectedRoute === '15'
+            ? ROUTE_15_STATIONS
+            : selectedRoute === '7'
+              ? ROUTE_7_STATIONS
+              : STATIONS
+          )
+          .filter((station, index) => {
+            // If segment is active, only show stations within the segment
+            if (originStationIndex !== null && destinationStationIndex !== null) {
+              const minIdx = Math.min(originStationIndex, destinationStationIndex)
+              const maxIdx = Math.max(originStationIndex, destinationStationIndex)
+              return index >= minIdx && index <= maxIdx
+            }
+            // Otherwise show all stations
+            return true
+          })
+          .map((station) => (
+            <CircleMarker
+              key={`station-${station.id}`}
+              center={station.coords}
+              radius={selectedRoute === '15' || selectedRoute === '7' ? 8 : 6}
+              pathOptions={{
+                color: selectedStation?.id === station.id
+                  ? '#00eaff'
+                  : (selectedRoute === '15'
+                    ? '#00aaff'
+                    : selectedRoute === '7'
+                      ? '#cc00ff'
+                      : 'white'),
+                fillColor: selectedRoute === '15'
                   ? '#00aaff'
                   : selectedRoute === '7'
                     ? '#cc00ff'
-                    : 'white'),
-              fillColor: selectedRoute === '15'
-                ? '#00aaff'
-                : selectedRoute === '7'
-                  ? '#cc00ff'
-                  : 'white',
-              fillOpacity: selectedRoute === '15' || selectedRoute === '7' ? 1 : 0.95
-            }}
-            weight={2}
-            opacity={1}
-            eventHandlers={{
-              click: () => handleStationClick(station)
-            }}
-          >
-            <Popup>{station.name}</Popup>
-          </CircleMarker>
-        ))}
+                    : 'white',
+                fillOpacity: selectedRoute === '15' || selectedRoute === '7' ? 1 : 0.95
+              }}
+              weight={2}
+              opacity={1}
+              eventHandlers={{
+                click: () => handleStationClick(station)
+              }}
+            >
+              <Popup>{station.name}</Popup>
+            </CircleMarker>
+          ))
+        )}
+
+        {/* 🔄 TRANSFER STATION MARKER - Special highlight removed as it's now integrated above */}
+        {transferStation && firstRouteSegment && secondRouteSegment && null}
 
         {/* MOVING BUS ICONS WITH ROTATION - HIGH-FIDELITY */}
         {selectedRoute === '1' && (
@@ -834,10 +1807,13 @@ export default function App() {
 
           {/* JOURNEY PLANNER: FROM → TO */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <select
-              className="glass-input"
+            {/* Start Location Input */}
+            <input
+              type="text"
+              list="mainStartList"
               onChange={(e) => setOrigin(e.target.value)}
               value={origin}
+              placeholder="📍 Start..."
               style={{
                 padding: '8px 12px',
                 background: 'rgba(255, 255, 255, 0.05)',
@@ -846,26 +1822,34 @@ export default function App() {
                 color: '#fff',
                 fontSize: '12px',
                 fontWeight: 500,
-                cursor: 'pointer',
                 outline: 'none',
+                width: '140px',
+                transition: 'all 0.2s',
               }}
-            >
-              <option value="" style={{ background: '#1a1a1a', color: '#fff' }}>
-                📍 Start Location
-              </option>
-              {UNIQUE_STATIONS.map((name) => (
-                <option key={name} value={name} style={{ background: '#1a1a1a', color: '#fff' }}>
-                  {name}
-                </option>
+              onFocus={(e) => {
+                e.target.style.background = 'rgba(255, 255, 255, 0.1)'
+                e.target.style.borderColor = 'rgba(255, 255, 255, 0.3)'
+              }}
+              onBlur={(e) => {
+                e.target.style.background = 'rgba(255, 255, 255, 0.05)'
+                e.target.style.borderColor = 'rgba(255, 255, 255, 0.08)'
+              }}
+            />
+            <datalist id="mainStartList">
+              {UNIQUE_STATIONS && UNIQUE_STATIONS.map((name) => (
+                <option key={name} value={name} />
               ))}
-            </select>
+            </datalist>
 
             <span style={{ color: '#666', fontSize: '16px' }}>➔</span>
 
-            <select
-              className="glass-input"
+            {/* Destination Input */}
+            <input
+              type="text"
+              list="mainDestList"
               onChange={(e) => setDestination(e.target.value)}
               value={destination}
+              placeholder="🏁 Dest..."
               style={{
                 padding: '8px 12px',
                 background: 'rgba(255, 255, 255, 0.05)',
@@ -874,22 +1858,31 @@ export default function App() {
                 color: '#fff',
                 fontSize: '12px',
                 fontWeight: 500,
-                cursor: 'pointer',
                 outline: 'none',
+                width: '140px',
+                transition: 'all 0.2s',
               }}
-            >
-              <option value="" style={{ background: '#1a1a1a', color: '#fff' }}>
-                🏁 Destination
-              </option>
-              {UNIQUE_STATIONS.map((name) => (
-                <option key={name} value={name} style={{ background: '#1a1a1a', color: '#fff' }}>
-                  {name}
-                </option>
+              onFocus={(e) => {
+                e.target.style.background = 'rgba(255, 255, 255, 0.1)'
+                e.target.style.borderColor = 'rgba(255, 255, 255, 0.3)'
+              }}
+              onBlur={(e) => {
+                e.target.style.background = 'rgba(255, 255, 255, 0.05)'
+                e.target.style.borderColor = 'rgba(255, 255, 255, 0.08)'
+              }}
+            />
+            <datalist id="mainDestList">
+              {UNIQUE_STATIONS && UNIQUE_STATIONS.map((name) => (
+                <option key={name} value={name} />
               ))}
-            </select>
+            </datalist>
 
             <button
-              onClick={findRoute}
+              onClick={() => {
+                if (origin && destination) {
+                  setTimeout(() => findRoute(), 50)
+                }
+              }}
               style={{
                 padding: '8px 14px',
                 background: 'rgba(41, 121, 255, 0.2)',
@@ -904,6 +1897,37 @@ export default function App() {
             >
               Find Bus 🔍
             </button>
+            
+            {/* Clear Segment Filter Button - Only show when segment or transfer is active */}
+            {(segmentCoordinates || transferStation) && (
+              <button
+                onClick={() => {
+                  setSegmentCoordinates(null)
+                  setOriginStationIndex(null)
+                  setDestinationStationIndex(null)
+                  setOrigin('')
+                  setDestination('')
+                  setTransferStation(null)
+                  setFirstRouteSegment(null)
+                  setSecondRouteSegment(null)
+                  setFirstRoute(null)
+                  setSecondRoute(null)
+                }}
+                style={{
+                  padding: '8px 14px',
+                  background: 'rgba(255, 0, 85, 0.2)',
+                  border: '1px solid rgba(255, 0, 85, 0.5)',
+                  borderRadius: '8px',
+                  color: '#ff0055',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {transferStation ? 'Clear Transfer 🔄' : 'Show Full Route 🔄'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -935,7 +1959,116 @@ export default function App() {
 
       {/* BOTTOM INTELLIGENCE HUB */}
       <AnimatePresence>
-        {showInsights && (
+        {showInsights && !origin && (
+          /* WELCOME SCREEN - Show when no journey is selected */
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', damping: 22 }}
+            style={{
+              position: 'absolute',
+              bottom: '30px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000,
+              background: 'rgba(10, 10, 10, 0.9)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              borderRadius: '24px',
+              padding: '32px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              width: '90%',
+              maxWidth: '500px',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.6)',
+              color: '#fff',
+            }}
+          >
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🚌</div>
+              <h1 style={{ margin: '0 0 12px 0', fontSize: '24px', fontWeight: 700 }}>
+                Welcome to Transit-Flow AI
+              </h1>
+              <p style={{ margin: '0 0 24px 0', fontSize: '14px', color: '#aaa' }}>
+                Real-time bus tracking with AI-powered insights
+              </p>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '12px',
+                marginBottom: '24px',
+              }}>
+                <div style={{
+                  padding: '16px',
+                  background: 'rgba(255, 0, 85, 0.1)',
+                  border: '1px solid rgba(255, 0, 85, 0.3)',
+                  borderRadius: '12px',
+                }}>
+                  <div style={{ fontSize: '24px', marginBottom: '8px' }}>📍</div>
+                  <div style={{ fontSize: '12px', fontWeight: 600 }}>Smart Routes</div>
+                  <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>3 Active Routes</div>
+                </div>
+                <div style={{
+                  padding: '16px',
+                  background: 'rgba(0, 170, 255, 0.1)',
+                  border: '1px solid rgba(0, 170, 255, 0.3)',
+                  borderRadius: '12px',
+                }}>
+                  <div style={{ fontSize: '24px', marginBottom: '8px' }}>⏱️</div>
+                  <div style={{ fontSize: '12px', fontWeight: 600 }}>Live ETA</div>
+                  <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Real-time Updates</div>
+                </div>
+                <div style={{
+                  padding: '16px',
+                  background: 'rgba(0, 255, 153, 0.1)',
+                  border: '1px solid rgba(0, 255, 153, 0.3)',
+                  borderRadius: '12px',
+                }}>
+                  <div style={{ fontSize: '24px', marginBottom: '8px' }}>🔄</div>
+                  <div style={{ fontSize: '12px', fontWeight: 600 }}>Transfers</div>
+                  <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Multi-Route Support</div>
+                </div>
+                <div style={{
+                  padding: '16px',
+                  background: 'rgba(204, 0, 255, 0.1)',
+                  border: '1px solid rgba(204, 0, 255, 0.3)',
+                  borderRadius: '12px',
+                }}>
+                  <div style={{ fontSize: '24px', marginBottom: '8px' }}>🤖</div>
+                  <div style={{ fontSize: '12px', fontWeight: 600 }}>AI Insights</div>
+                  <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>Crowd & Comfort</div>
+                </div>
+              </div>
+
+              <div style={{
+                background: 'rgba(100, 100, 100, 0.2)',
+                border: '1px solid rgba(100, 100, 100, 0.3)',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '20px',
+                textAlign: 'left',
+              }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: '#00ff99' }}>
+                  🎯 How to Use:
+                </div>
+                <ol style={{ margin: 0, paddingLeft: '20px', fontSize: '11px', color: '#aaa' }}>
+                  <li>Select your <strong>Start Location</strong></li>
+                  <li>Choose your <strong>Destination</strong></li>
+                  <li>Click <strong>Find Bus 🔍</strong></li>
+                  <li>View live ETA & crowd info</li>
+                </ol>
+              </div>
+
+              <div style={{ fontSize: '11px', color: '#888' }}>
+                ✨ <strong>Smart Transfer Logic</strong>: Automatically finds the best route combination with optimal transfer points
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {showInsights && origin && (
+          /* LIVE TRANSIT DATA - Show when journey is selected */
           <motion.div
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -955,17 +2088,46 @@ export default function App() {
               border: '1px solid rgba(255, 255, 255, 0.08)',
               width: '90%',
               maxWidth: '440px',
+              maxHeight: '70vh',
+              overflowY: 'auto',
               boxShadow: '0 20px 60px rgba(0, 0, 0, 0.6)',
               color: '#fff',
             }}
           >
+            {/* TRANSFER INDICATOR - Show when multi-route journey is active */}
+            {transferStation && (
+              <div style={{
+                marginBottom: '18px',
+                padding: '14px',
+                background: 'linear-gradient(135deg, rgba(255, 153, 0, 0.15), rgba(255, 0, 85, 0.15))',
+                border: '1px solid rgba(255, 153, 0, 0.4)',
+                borderRadius: '12px',
+                textAlign: 'center',
+              }}>
+                <p style={{ margin: '0 0 8px 0', fontSize: '11px', color: '#ffa500', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>
+                  🔄 TRANSFER REQUIRED
+                </p>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '6px' }}>
+                  {firstRoute} → {secondRoute}
+                </div>
+                <div style={{ fontSize: '12px', color: '#00ff99', fontWeight: 600 }}>
+                  Change at: {transferStation}
+                </div>
+                <div style={{ fontSize: '10px', color: '#888', marginTop: '6px' }}>
+                  {origin} → {transferStation} → {destination}
+                </div>
+              </div>
+            )}
+            
             {/* HEADER */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, letterSpacing: '0.5px' }}>
                   Route {selectedRoute}: {startNode} ➔ {endNode}
                 </h2>
-                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#888' }}>Live Transit Data</p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#888' }}>
+                  {getRouteDirectionLabel(routeDirection)} • Live Transit Data
+                </p>
               </div>
               <button
                 onClick={() => setShowInsights(false)}
@@ -998,20 +2160,72 @@ export default function App() {
               </p>
             </div>
 
-            {/* ARRIVAL ETA */}
+            {/* ARRIVAL ETA - DYNAMIC BASED ON BUS POSITION */}
             <div style={{
               textAlign: 'center',
               marginBottom: '24px',
               padding: '16px',
-              background: 'rgba(255, 0, 85, 0.15)',
-              border: '1px solid rgba(255, 0, 85, 0.3)',
+              background: isApproaching ? 'rgba(0, 255, 153, 0.15)' : hasLeft ? 'rgba(255, 153, 0, 0.15)' : 'rgba(255, 0, 85, 0.15)',
+              border: `1px solid ${isApproaching ? 'rgba(0, 255, 153, 0.3)' : hasLeft ? 'rgba(255, 153, 0, 0.3)' : 'rgba(255, 0, 85, 0.3)'}`,
               borderRadius: '12px',
             }}>
-              <p style={{ margin: '0 0 4px 0', fontSize: '11px', color: '#aaa', textTransform: 'uppercase', fontWeight: 600 }}>Next Bus Arriving in</p>
-              <div style={{ fontSize: '32px', fontWeight: 700, color: '#ff0055', letterSpacing: '1px' }}>
-                {etaMinutes} min
+              <p style={{ margin: '0 0 4px 0', fontSize: '11px', color: '#aaa', textTransform: 'uppercase', fontWeight: 600 }}>
+                {isLoadingInsight ? '🤖 AI Agent Analyzing...' : isApproaching ? 'Bus Approaching' : hasLeft ? 'Next Bus In' : 'Arriving At'}
+              </p>
+              <div style={{ fontSize: '32px', fontWeight: 700, color: isApproaching ? '#00ff99' : hasLeft ? '#ffa500' : '#ff0055', letterSpacing: '1px' }}>
+                {isLoadingInsight ? '...' : `${etaMinutes} min`}
+              </div>
+              <div style={{ marginTop: '8px' }}>
+                <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: isApproaching ? '#00ff99' : hasLeft ? '#ffa500' : '#888', fontWeight: 600 }}>
+                  {busStatusMessage}
+                </p>
+                {origin && (
+                  <p style={{ margin: '6px 0 0 0', fontSize: '10px', color: '#888' }}>
+                    Station: {origin}
+                  </p>
+                )}
+                {hasLeft && (
+                  <p style={{ margin: '4px 0 0 0', fontSize: '9px', color: '#666' }}>
+                    Frequency: Every {frequencyMinutes.toFixed(1)} min
+                  </p>
+                )}
               </div>
             </div>
+
+            {/* CROWD LEVEL FROM INSIGHT */}
+            {insightData && !isLoadingInsight && (
+              <div style={{
+                marginBottom: '24px',
+                padding: '16px',
+                background: insightData.crowd.includes('Standing') 
+                  ? 'rgba(255, 0, 85, 0.15)' 
+                  : insightData.crowd.includes('Mixed') 
+                    ? 'rgba(255, 204, 0, 0.15)'
+                    : 'rgba(0, 255, 153, 0.15)',
+                border: `1px solid ${insightData.crowd.includes('Standing') 
+                  ? 'rgba(255, 0, 85, 0.3)' 
+                  : insightData.crowd.includes('Mixed') 
+                    ? 'rgba(255, 204, 0, 0.3)'
+                    : 'rgba(0, 255, 153, 0.3)'}`,
+                borderRadius: '12px',
+                textAlign: 'center',
+              }}>
+                <p style={{ margin: '0 0 4px 0', fontSize: '11px', color: '#aaa', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Crowd Level
+                </p>
+                <div style={{ 
+                  fontSize: '20px', 
+                  fontWeight: 700, 
+                  color: insightData.crowd.includes('Standing') ? '#ff0055' : insightData.crowd.includes('Mixed') ? '#ffcc00' : '#00ff99',
+                  letterSpacing: '0.5px' 
+                }}>
+                  {insightData.crowd}
+                </div>
+                <p style={{ margin: '8px 0 0 0', fontSize: '11px', color: '#888' }}>
+                  Frequency: Every {insightData.frequency} min
+                </p>
+              </div>
+            )}
 
             {/* COMFORT METER WITH SPARKLINE */}
             <div style={{ marginBottom: '24px' }}>
@@ -1062,48 +2276,80 @@ export default function App() {
             </div>
 
             {/* ACTION BUTTON WITH REDIRECTING STATE */}
-            <button
-              onClick={switchRoute}
-              disabled={isRedirecting}
-              style={{
-                width: '100%',
-                padding: '16px 20px',
-                background: isRedirecting 
-                  ? 'linear-gradient(135deg, #666 0%, #888 100%)'
-                  : 'linear-gradient(135deg, #2979ff 0%, #00d4ff 100%)',
-                border: `1px solid ${isRedirecting ? 'rgba(100, 100, 100, 0.5)' : 'rgba(41, 121, 255, 0.5)'}`,
-                borderRadius: '14px',
-                color: '#fff',
-                fontSize: '15px',
-                fontWeight: 700,
-                cursor: isRedirecting ? 'not-allowed' : 'pointer',
-                transition: 'all 0.3s',
-                boxShadow: isRedirecting 
-                  ? '0 4px 12px rgba(0, 0, 0, 0.3)'
-                  : '0 8px 24px rgba(41, 121, 255, 0.4)',
-              }}
-              onMouseEnter={(e) => {
-                if (!isRedirecting) {
-                  e.target.style.transform = 'translateY(-2px)'
-                  e.target.style.boxShadow = '0 12px 32px rgba(41, 121, 255, 0.6)'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isRedirecting) {
-                  e.target.style.transform = 'translateY(0)'
-                  e.target.style.boxShadow = '0 8px 24px rgba(41, 121, 255, 0.4)'
-                }
-              }}
-            >
-              {isRedirecting ? '⏳ Redirecting...' : (
-                selectedRoute === '1' ? '✈️ Switch to Route 15 (Airport Express)'
-                : '↩️ Return to Route 1D (Express)'
-              )}
-            </button>
+            {/* Smart route switching based on occupancy - only show if alternative route exists for journey */}
+            {(() => {
+              // Check if an alternative route exists for this origin-destination pair
+              const alternateRoute = selectedRoute === '1' ? '15' : '1'
+              const currentRouteStations = currentStations
+              const alternateRouteStations = alternateRoute === '1' ? STATIONS : ROUTE_15_STATIONS
+              
+              // Check if both origin and destination exist on alternate route
+              const originOnAlternate = alternateRouteStations.some(s => s.name === origin)
+              const destOnAlternate = alternateRouteStations.some(s => s.name === destination)
+              const hasAlternativeRoute = originOnAlternate && destOnAlternate
+              
+              // Only show button if alternative route exists
+              if (!hasAlternativeRoute) return null
+              
+              const currentLoad = comfort
+              const alternateLoad = busData[alternateRoute]?.load || 0
+              const shouldSuggestSwitch = alternateLoad < currentLoad - 10
+              
+              return (
+                <button
+                  onClick={switchRoute}
+                  disabled={isRedirecting}
+                  style={{
+                    width: '100%',
+                    padding: '16px 20px',
+                    background: isRedirecting 
+                      ? 'linear-gradient(135deg, #666 0%, #888 100%)'
+                      : shouldSuggestSwitch
+                        ? 'linear-gradient(135deg, #00ff99 0%, #00d4ff 100%)'
+                        : 'linear-gradient(135deg, #2979ff 0%, #00d4ff 100%)',
+                    border: `1px solid ${isRedirecting ? 'rgba(100, 100, 100, 0.5)' : shouldSuggestSwitch ? 'rgba(0, 255, 153, 0.5)' : 'rgba(41, 121, 255, 0.5)'}`,
+                    borderRadius: '14px',
+                    color: '#fff',
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    cursor: isRedirecting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s',
+                    boxShadow: isRedirecting 
+                      ? '0 4px 12px rgba(0, 0, 0, 0.3)'
+                      : shouldSuggestSwitch
+                        ? '0 8px 24px rgba(0, 255, 153, 0.4)'
+                        : '0 8px 24px rgba(41, 121, 255, 0.4)',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isRedirecting) {
+                      e.target.style.transform = 'translateY(-2px)'
+                      e.target.style.boxShadow = shouldSuggestSwitch 
+                        ? '0 12px 32px rgba(0, 255, 153, 0.6)'
+                        : '0 12px 32px rgba(41, 121, 255, 0.6)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isRedirecting) {
+                      e.target.style.transform = 'translateY(0)'
+                      e.target.style.boxShadow = shouldSuggestSwitch 
+                        ? '0 8px 24px rgba(0, 255, 153, 0.4)'
+                        : '0 8px 24px rgba(41, 121, 255, 0.4)'
+                    }
+                  }}
+                >
+                  {isRedirecting ? '⏳ Redirecting...' : (
+                    shouldSuggestSwitch 
+                      ? `💚 Switch to Route ${alternateRoute} - Better Comfort (${alternateLoad}% vs ${currentLoad}%)`
+                      : `↩️ Heading to ${destination || 'Destination'}`
+                  )}
+                </button>
+              )
+            })()}
+            
 
             {/* FOOTER */}
             <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '11px', color: '#666' }}>
-              ✓ {selectedRoute === '1' ? 'Airport Express available with live updates' : 'Express Route 1 - Fastest to ISKCON'}
+              ✓ {selectedRoute === '1' ? 'Airport Express available with live updates' : `Route ${selectedRoute} - ${origin || 'Start'} to ${destination || 'End'}`}
             </div>
           </motion.div>
         )}
@@ -1425,7 +2671,7 @@ export default function App() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <MessageCircle size={18} color="#2979ff" />
-                <span style={{ fontSize: '14px', fontWeight: 700, color: '#fff' }}>Transit Assist AI</span>
+                <span style={{ fontSize: '14px', fontWeight: 700, color: '#fff' }}>Transit Assist</span>
               </div>
               <button
                 onClick={() => { setShowHelp(false); setSelectedFAQ(null) }}
@@ -1439,7 +2685,8 @@ export default function App() {
             <div style={{ padding: '16px', maxHeight: '300px', overflowY: 'auto' }}>
               {!selectedFAQ ? (
                 <div>
-                  <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>How can I help you today?</p>
+                  <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>Ask about fares, routes, distances & transfers</p>
+                  <p style={{ fontSize: '11px', color: '#666', marginBottom: '16px' }}>Or type your question below:</p>
                   {faqs.map((faq, idx) => (
                     <button
                       key={idx}
@@ -1463,6 +2710,43 @@ export default function App() {
                       {faq.q}
                     </button>
                   ))}
+                  
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                    <input
+                      type="text"
+                      placeholder="Type your question..."
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderRadius: '6px',
+                        color: '#fff',
+                        fontSize: '12px',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.background = 'rgba(255, 255, 255, 0.1)'
+                        e.target.style.borderColor = 'rgba(41, 121, 255, 0.5)'
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.background = 'rgba(255, 255, 255, 0.05)'
+                        e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)'
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.target.value.trim()) {
+                          const userQuery = e.target.value.trim()
+                          const answer = handleCustomQuery(userQuery)
+                          setSelectedFAQ({
+                            q: userQuery,
+                            a: answer
+                          })
+                          e.target.value = ''
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div>
