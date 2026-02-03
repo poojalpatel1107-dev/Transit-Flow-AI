@@ -2,7 +2,33 @@ import React, { useState } from 'react'
 import { Search } from 'lucide-react'
 import './SearchBar.css'
 
-const STOPS = ['Shivranjani', 'ISKCON', 'Nehrunagar', 'L.D. College', 'RTO']
+const STOPS = [
+  'ISKCON Cross Road', 
+  'ISRO Colony',
+  'Star Bazaar',
+  'Jodhpur Char Rasta',
+  'Shivranjani', 
+  'Jhansi Ki Rani', 
+  'Nehrunagar', 
+  'Manekbag', 
+  'Dharnidhar Derasar', 
+  'Anjali Cross Road',
+  'Himmatlal Park',
+  'University',
+  'Memnagar',
+  'Sola Cross-Road',
+  'Shastrinagar',
+  'Pragatinagar',
+  'Akbarnagar',
+  'Ranip Cross-Road',
+  'RTO Circle',
+  'Ahmedabad Domestic Airport',
+  'Sabarmati Power-House',
+  'Sabarmati Police Station',
+  'Motera Cross-Road',
+  'Visat-Gandhinagar Junction',
+  'Vishwakarma Government Engineering College'
+]
 
 function SearchBar({ onRouteSelect }) {
   const [source, setSource] = useState('')

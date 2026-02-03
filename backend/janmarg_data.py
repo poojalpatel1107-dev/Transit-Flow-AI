@@ -35,7 +35,7 @@ PEAK_HOURS_EVENING = (17, 20)  # Evening peak: 5:00 PM to 8:00 PM
 # 5. ROUTE DISTANCES (Approximate distances in kilometers)
 # ============================================================================
 ROUTE_DISTANCES = {
-    '1': 12.0,   # Shivranjani to ISKCON: ~12 km
+    '1': 8.5,    # ISKCON to Anjali Cross Road: ~8.5 km (Extended)
     '15': 25.0,  # ISKCON to Airport: ~25 km
     '7': 18.0,   # Ranip to Engineering College: ~18 km
 }
@@ -44,12 +44,14 @@ ROUTE_DISTANCES = {
 # 5A. ROUTE STATION SEQUENCES (Ordered for distance calculation)
 # ============================================================================
 ROUTE_1_STOPS = [
-    "Shivranjani",
-    "Jodhpur",
-    "Star Bazaar",
-    "ISRO Colony",
+    "ISKCON Cross Road",
     "Ramdev Nagar",
-    "ISKCON"
+    "Shivranjani",
+    "Jhansi Ki Rani",
+    "Nehrunagar",
+    "Manekbag",
+    "Dharnidhar Derasar",
+    "Anjali Cross Road"
 ]
 
 ROUTE_7_STOPS = [
@@ -81,10 +83,24 @@ ROUTE_15_STOPS = [
 AVG_DIST_BETWEEN_STOPS_KM = 1.2
 
 # ============================================================================
+# 5B. ROUTE 1 STATION DISTANCES (From ISKCON Cross Road in kilometers)
+# ============================================================================
+ROUTE_1_DISTANCES = {
+    "ISKCON Cross Road": 0.0,
+    "Ramdev Nagar": 1.8,
+    "Shivranjani": 3.2,
+    "Jhansi Ki Rani": 4.1,
+    "Nehrunagar": 5.0,
+    "Manekbag": 5.9,
+    "Dharnidhar Derasar": 7.2,
+    "Anjali Cross Road": 8.5
+}
+
+# ============================================================================
 # 6. STATION COUNT (Number of stops per route)
 # ============================================================================
 ROUTE_STATIONS = {
-    '1': 6,    # Route 1 has 6 stations
+    '1': 8,    # Route 1 has 8 stations (Extended: ISKCON to Anjali)
     '15': 14,  # Route 15 has 14 stations
     '7': 7,    # Route 7 has 7 stations
 }

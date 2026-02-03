@@ -5,7 +5,7 @@ import { X, Bus, HelpCircle, Cloud, Activity, MessageCircle } from 'lucide-react
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
-import { REAL_ROUTE_1, STATIONS, ROUTE_15_COORDINATES, ROUTE_15_STATIONS, ROUTE_7_COORDINATES, ROUTE_7_STATIONS, getStationAnalytics } from './RouteCoordinates'
+import { REAL_ROUTE_1, ROUTE_1U_COORDINATES, STATIONS, ROUTE_15_COORDINATES, ROUTE_15_STATIONS, ROUTE_7_COORDINATES, ROUTE_7_STATIONS, getStationAnalytics } from './RouteCoordinates'
 import { fetchRouteAnalytics, fetchRouteInsight } from './services/AIAgent'
 
 // 🎯 HAVERSINE FORMULA: Calculate distance between two GPS coordinates
@@ -41,11 +41,16 @@ const calculateTravelTime = (distance) => {
 const SPEED_FACTOR = 0.011
 
 // 🚏 STATION COORDINATES (Exact GPS coordinates with index references)
-const STOPS = ['Shivranjani', 'Ramdev Nagar', 'ISKCON']
+const STOPS = ['ISKCON', 'Ramdev Nagar', 'Shivranjani', 'Jhansi Ki Rani', 'Nehrunagar', 'Manekbag', 'Dharnidhar Derasar', 'Anjali Cross Road']
 const STOPS_COORDS = {
-  'Shivranjani': [23.02685, 72.53738],  // Index 0
-  'Ramdev Nagar': [23.02530, 72.52420], // Index 8 (STOP POINT)
-  'ISKCON': [23.02310, 72.50680],       // Index 16
+  'ISKCON': [23.02310, 72.50680],                  // Start
+  'Ramdev Nagar': [23.02530, 72.52420],            // Station
+  'Shivranjani': [23.02685, 72.53738],             // Station
+  'Jhansi Ki Rani': [23.023027, 72.536331],        // NEW Station
+  'Nehrunagar': [23.022530, 72.541695],            // NEW Station
+  'Manekbag': [23.018310, 72.544047],              // NEW Station
+  'Dharnidhar Derasar': [23.008213, 72.549283],    // NEW Station
+  'Anjali Cross Road': [23.003722, 72.553875]      // NEW Terminal (End)
 }
 
 // 🧭 JOURNEY PLANNER: ROUTE LOOKUP + UNIQUE STATION LIST
@@ -105,12 +110,12 @@ const AI_TRIGGER_POINTS = {
 // 🤖 AI AGENT TRANSIT ALERTS (Live Toast Notifications)
 const AI_ALERTS = [
   { icon: '⚠️', text: 'Heavy traffic detected near ISRO Colony. Route 12D is 4 mins faster.', severity: 'warning' },
-  { icon: '✅', text: 'Route 1D running on schedule. Expect to arrive on time.', severity: 'success' },
+  { icon: '✅', text: 'Route 1 running on schedule. Expect to arrive on time.', severity: 'success' },
   { icon: '📊', text: 'Crowd surge at Ramdev Nagar Hub. Standing room only expected.', severity: 'info' },
   { icon: '🚀', text: 'Optimal time to travel: Next bus arriving in 2 minutes.', severity: 'success' },
   { icon: '⏱️', text: 'Slight delay detected. Expected ETL +3 mins due to peak traffic.', severity: 'warning' },
   { icon: '🌧️', text: 'Light rain reported. No route changes needed.', severity: 'info' },
-  { icon: '📍', text: 'Bus 1D at Ramdev Nagar Hub. Next stop: ISKCON in 5 mins.', severity: 'info' },
+  { icon: '📍', text: 'Bus at Ramdev Nagar Hub. Next stop: Anjali in 7 mins.', severity: 'info' },
   { icon: '💚', text: 'Route 12D showing 65% seating available. Consider switching.', severity: 'success' }
 ]
 
@@ -207,7 +212,7 @@ const crowdData = getCrowdData()
 const faqs = [
   { 
     q: 'What is the fare for my route?', 
-    a: `Standard Janmarg Fare: ₹5 base fare (up to 5 km) + ₹2 per additional km. Example: Shivranjani to ISKCON (12 km) = ₹19. Use Janmarg card for discounts.` 
+    a: `Standard Janmarg Fare: ₹5 base fare (up to 5 km) + ₹2 per additional km. Example: ISKCON to Anjali (8.5 km) = ₹12. Use Janmarg card for discounts.` 
   },
   { 
     q: 'What is the best route with transfer?', 
@@ -215,7 +220,7 @@ const faqs = [
   },
   { 
     q: 'How far is my destination?', 
-    a: `Distance varies by route. Example distances: Shivranjani to ISKCON = 12 km via Route 1 | Airport to ISKCON = 25 km via Route 15. Use map zoom to see exact distances.` 
+    a: `Distance varies by route. Example distances: ISKCON to Anjali = 8.5 km via Route 1 | Airport to ISKCON = 25 km via Route 15. Use map zoom to see exact distances.` 
   },
   { 
     q: 'What are the operating hours?', 
@@ -336,11 +341,21 @@ export default function App() {
   const [weather, setWeather] = useState({ temp: 32, isDay: true, loading: true })
   // Smooth animation progress (0 to 1)
   const [bus1Progress, setBus1Progress] = useState(0)
+  const [bus1aProgress, setBus1aProgress] = useState(0.4) // Parallel bus on Route 1
+  const [bus1bProgress, setBus1bProgress] = useState(0.7) // Third parallel bus on Route 1
   const [bus12Progress, setBus12Progress] = useState(0.3)
   const [bus15Progress, setBus15Progress] = useState(0)
+  const [bus15aProgress, setBus15aProgress] = useState(0.5) // Parallel bus on Route 15
+  const [bus7Progress, setBus7Progress] = useState(0) // Route 7 bus
+  const [bus7aProgress, setBus7aProgress] = useState(0.45) // Parallel bus on Route 7
   const [bus1Bearing, setBus1Bearing] = useState(0)
+  const [bus1aBearing, setBus1aBearing] = useState(0)
+  const [bus1bBearing, setBus1bBearing] = useState(0)
   const [bus12Bearing, setBus12Bearing] = useState(0)
   const [bus15Bearing, setBus15Bearing] = useState(0)
+  const [bus15aBearing, setBus15aBearing] = useState(0)
+  const [bus7Bearing, setBus7Bearing] = useState(0)
+  const [bus7aBearing, setBus7aBearing] = useState(0)
   // Station selection + AI analytics state
   const [selectedStation, setSelectedStation] = useState(null)
   const [stationAnalytics, setStationAnalytics] = useState(null)
@@ -367,10 +382,13 @@ export default function App() {
   const [segmentCoordinates, setSegmentCoordinates] = useState(null)
   // Multi-route transfer state
   const [transferStation, setTransferStation] = useState(null)
+  const [secondTransferStation, setSecondTransferStation] = useState(null) // For 2-transfer routes
   const [firstRouteSegment, setFirstRouteSegment] = useState(null)
   const [secondRouteSegment, setSecondRouteSegment] = useState(null)
+  const [thirdRouteSegment, setThirdRouteSegment] = useState(null) // For 2-transfer routes
   const [firstRoute, setFirstRoute] = useState(null)
   const [secondRoute, setSecondRoute] = useState(null)
+  const [thirdRoute, setThirdRoute] = useState(null) // For 2-transfer routes
   const [routeDirection, setRouteDirection] = useState('D') // D = Down, U = Up
 
   // Helper function to determine route direction based on station order
@@ -407,24 +425,40 @@ export default function App() {
   const hasStoppedAtRef = useRef(new Set()) // Track visited stations
 
   useEffect(() => {
-    // SELECT THE CORRECT PHYSICAL PATH based on selectedRoute
+    // SELECT THE CORRECT PHYSICAL PATH based on selectedRoute and direction
     let activePath = []
     let activeStations = []
 
     if (selectedRoute === '1') {
-      activePath = ROUTE_1_COORDINATES
-      activeStations = STATIONS
+      activePath = routeDirection === 'D' ? ROUTE_1_COORDINATES : ROUTE_1U_COORDINATES
+      activeStations = routeDirection === 'D' ? STATIONS : [...STATIONS].reverse()
+      // Initialize parallel bus positions when switching to Route 1
+      setBus1aProgress(0.4)
+      setBus1bProgress(0.7)
     } else if (selectedRoute === '15') {
       activePath = ROUTE_15_COORDINATES
       activeStations = ROUTE_15_STATIONS
+      // Initialize parallel bus position when switching to Route 15
+      setBus15aProgress(0.5)
     } else if (selectedRoute === '7') {
       activePath = ROUTE_7_COORDINATES
       activeStations = ROUTE_7_STATIONS
+      // Initialize parallel bus position when switching to Route 7
+      setBus7aProgress(0.45)
     }
 
     // Use segment coordinates if available (for origin-destination specific routes)
     if (segmentCoordinates && segmentCoordinates.length > 0) {
       activePath = segmentCoordinates
+    }
+    // For transfer routes with multiple segments, concatenate all segments
+    else if ((transferStation || secondTransferStation) && firstRouteSegment && secondRouteSegment) {
+      // Combine all available transfer segments for continuous animation
+      if (thirdRouteSegment) {
+        activePath = [...firstRouteSegment, ...secondRouteSegment, ...thirdRouteSegment]
+      } else {
+        activePath = [...firstRouteSegment, ...secondRouteSegment]
+      }
     }
 
     let segmentStartTime = null
@@ -496,12 +530,61 @@ export default function App() {
 
       const overallProgress = currentIndex / Math.max(totalSegments, 1)
 
-      if (selectedRoute === '1') {
-        setBus1Progress(overallProgress)
-        setBus1Bearing(bearing)
+      // Update bus progress based on active route or transfer
+      if ((transferStation || secondTransferStation) && firstRoute && secondRoute) {
+        // Transfer route - update all route buses involved
+        if (firstRoute && firstRoute[0] === '1') {
+          setBus1Progress(overallProgress)
+          setBus1Bearing(bearing)
+          setBus1aProgress((overallProgress + 0.4) % 1)
+          setBus1aBearing(bearing)
+          setBus1bProgress((overallProgress + 0.7) % 1)
+          setBus1bBearing(bearing)
+        }
+        if (secondRoute && secondRoute[0] === '15') {
+          setBus15Progress(overallProgress)
+          setBus15Bearing(bearing)
+          setBus15aProgress((overallProgress + 0.5) % 1)
+          setBus15aBearing(bearing)
+        }
+        if (secondRoute && secondRoute[0] === '7') {
+          setBus7Progress(overallProgress)
+          setBus7Bearing(bearing)
+          setBus7aProgress((overallProgress + 0.45) % 1)
+          setBus7aBearing(bearing)
+        }
+        if (thirdRoute && thirdRoute[0] === '7') {
+          setBus7Progress(overallProgress)
+          setBus7Bearing(bearing)
+          setBus7aProgress((overallProgress + 0.45) % 1)
+          setBus7aBearing(bearing)
+        }
+        if (thirdRoute && thirdRoute[0] === '15') {
+          setBus15Progress(overallProgress)
+          setBus15Bearing(bearing)
+          setBus15aProgress((overallProgress + 0.5) % 1)
+          setBus15aBearing(bearing)
+        }
       } else {
-        setBus15Progress(overallProgress)
-        setBus15Bearing(bearing)
+        // Single route selected
+        if (selectedRoute === '1') {
+          setBus1Progress(overallProgress)
+          setBus1Bearing(bearing)
+          setBus1aProgress((overallProgress + 0.4) % 1)
+          setBus1aBearing(bearing)
+          setBus1bProgress((overallProgress + 0.7) % 1)
+          setBus1bBearing(bearing)
+        } else if (selectedRoute === '15') {
+          setBus15Progress(overallProgress)
+          setBus15Bearing(bearing)
+          setBus15aProgress((overallProgress + 0.5) % 1)
+          setBus15aBearing(bearing)
+        } else if (selectedRoute === '7') {
+          setBus7Progress(overallProgress)
+          setBus7Bearing(bearing)
+          setBus7aProgress((overallProgress + 0.45) % 1)
+          setBus7aBearing(bearing)
+        }
       }
 
       if (segmentProgress >= 1) {
@@ -524,7 +607,7 @@ export default function App() {
 
     const raf = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(raf)
-  }, [selectedRoute, routeDirection, segmentCoordinates])
+  }, [selectedRoute, routeDirection, segmentCoordinates, firstRouteSegment, secondRouteSegment, thirdRouteSegment, bus1aProgress, bus1bProgress, bus15aProgress, bus7Progress, bus7aProgress])
 
   // 🎯 ORIGIN-BASED POSITIONING: Position bus at origin station when incoming
   useEffect(() => {
@@ -612,7 +695,8 @@ export default function App() {
     // Distance queries
     if (q.includes('distance') || q.includes('how far') || q.includes('km')) {
       const distances = {
-        'shivranjani to iskcon': '12 km via Route 1',
+        'iskcon to anjali': '8.5 km via Route 1',
+        'anjali to iskcon': '8.5 km via Route 1',
         'iskcon to airport': '25 km via Route 15',
         'rto to vishwakarma': '8 km via Route 7',
         'airport to iskcon': '25 km via Route 15 (Return)',
@@ -898,6 +982,13 @@ export default function App() {
           routesWithDest.push({ routeId, index: destIndex, stations })
         }
       }
+      
+      console.log('🔍 Transfer Detection:', {
+        origin: originValue,
+        destination: destinationValue,
+        routesWithOrigin: routesWithOrigin.map(r => `Route ${r.routeId}`),
+        routesWithDest: routesWithDest.map(r => `Route ${r.routeId}`)
+      })
 
       // Try to find a route combination with a common transfer station
       let bestTransfer = null
@@ -906,44 +997,177 @@ export default function App() {
         for (const destRoute of routesWithDest) {
           if (originRoute.routeId === destRoute.routeId) continue // Skip same route
           
-          // Determine direction for origin route
-          const originDirection = getRouteDirection(originRoute.stations, originValue, '')
+          console.log(`Checking transfer between Route ${originRoute.routeId} and Route ${destRoute.routeId}`)
           
-          // Find common stations between these two routes
-          // AND check if they're in the correct direction of travel
+          // Find ALL common stations and pick the OPTIMAL one
+          const commonStations = []
           for (let i = 0; i < originRoute.stations.length; i++) {
             for (let j = 0; j < destRoute.stations.length; j++) {
               if (originRoute.stations[i].name === destRoute.stations[j].name) {
                 const transferStationName = originRoute.stations[i].name
                 
-                // Check if this transfer station is "on the way" in both routes
-                const originToTransferValid = (originRoute.index < i) // Transfer is after origin
-                const transferToDestValid = (j < destRoute.index) // Dest is after transfer
-                
-                // Only consider this transfer if it's in the right direction
-                if (originToTransferValid && transferToDestValid) {
-                  bestTransfer = {
-                    originRouteId: originRoute.routeId,
-                    destRouteId: destRoute.routeId,
-                    originIdx: originRoute.index,
-                    destIdx: destRoute.index,
-                    transferStation: transferStationName,
-                    transferIdxOriginRoute: i,
-                    transferIdxDestRoute: j,
-                    originStations: originRoute.stations,
-                    destStations: destRoute.stations,
-                    originDirection: i > originRoute.index ? 'D' : 'U',
-                    destDirection: destRoute.index > j ? 'D' : 'U'
-                  }
-                  break
+                // Check that transfer station is different from origin and destination
+                if (transferStationName !== originValue && transferStationName !== destinationValue) {
+                  commonStations.push({
+                    name: transferStationName,
+                    originRouteIdx: i,
+                    destRouteIdx: j,
+                    originRouteDistance: Math.abs(i - originRoute.index), // Distance from origin
+                    destRouteDistance: Math.abs(j - destRoute.index) // Distance to destination
+                  })
                 }
               }
             }
-            if (bestTransfer) break
           }
-          if (bestTransfer) break
+          
+          if (commonStations.length > 0) {
+            // Sort by: considering travel direction
+            // If traveling 'D' (forward), prefer stations ahead that are not too far
+            // If traveling 'U' (backward), prefer stations behind that are not too far
+            const travelDirection = originRoute.index <= (originRoute.stations.length - 1) / 2 ? 'D' : 'U'
+            
+            commonStations.sort((a, b) => {
+              // Primary: closest to origin (shortest first leg) - always preferred
+              if (a.originRouteDistance !== b.originRouteDistance) {
+                return a.originRouteDistance - b.originRouteDistance
+              }
+              // Secondary: if same distance from origin, prefer closer to destination
+              return a.destRouteDistance - b.destRouteDistance
+            })
+            
+            const optimalTransfer = commonStations[0]
+            
+            bestTransfer = {
+              originRouteId: originRoute.routeId,
+              destRouteId: destRoute.routeId,
+              originIdx: originRoute.index,
+              destIdx: destRoute.index,
+              transferStation: optimalTransfer.name,
+              transferIdxOriginRoute: optimalTransfer.originRouteIdx,
+              transferIdxDestRoute: optimalTransfer.destRouteIdx,
+              originStations: originRoute.stations,
+              destStations: destRoute.stations,
+              originDirection: optimalTransfer.originRouteIdx > originRoute.index ? 'D' : 'U',
+              destDirection: destRoute.index > optimalTransfer.destRouteIdx ? 'D' : 'U'
+            }
+            console.log(`✓ Optimal transfer found at: ${optimalTransfer.name} (distance from origin: ${optimalTransfer.originRouteDistance})`)
+          }
         }
         if (bestTransfer) break
+      }
+      
+      // If no direct transfer found, try 2-transfer route (via intermediate route)
+      if (!bestTransfer && routesWithOrigin.length > 0 && routesWithDest.length > 0) {
+        console.log('No direct transfer found, checking 2-transfer routes...')
+        
+        // Check all possible intermediate routes
+        const allRoutes = Object.entries(ROUTE_MAP)
+        
+        for (const originRoute of routesWithOrigin) {
+          for (const [intermediateRouteId, intermediateStations] of allRoutes) {
+            if (intermediateRouteId === originRoute.routeId) continue
+            
+            // Find ALL common stations between origin route and intermediate route
+            const commonTransfer1 = []
+            for (let i = 0; i < originRoute.stations.length; i++) {
+              for (let j = 0; j < intermediateStations.length; j++) {
+                if (originRoute.stations[i].name === intermediateStations[j].name &&
+                    originRoute.stations[i].name !== originValue) {
+                  commonTransfer1.push({
+                    name: originRoute.stations[i].name,
+                    originRouteIdx: i,
+                    intermediateRouteIdx: j,
+                    distanceFromOrigin: Math.abs(i - originRoute.index)
+                  })
+                }
+              }
+            }
+            
+            if (commonTransfer1.length === 0) continue
+            
+            // Sort by closest to origin
+            commonTransfer1.sort((a, b) => a.distanceFromOrigin - b.distanceFromOrigin)
+            
+            // Find common station between intermediate route and destination route
+            for (const destRoute of routesWithDest) {
+              if (destRoute.routeId === intermediateRouteId) continue
+              
+              // Find ALL common stations between intermediate and destination routes
+              const commonTransfer2 = []
+              for (let k = 0; k < intermediateStations.length; k++) {
+                for (let m = 0; m < destRoute.stations.length; m++) {
+                  if (intermediateStations[k].name === destRoute.stations[m].name &&
+                      intermediateStations[k].name !== destinationValue &&
+                      commonTransfer1.some(ct1 => ct1.name !== intermediateStations[k].name)) { // Different from first transfer
+                    
+                    commonTransfer2.push({
+                      name: intermediateStations[k].name,
+                      intermediateRouteIdx: k,
+                      destRouteIdx: m,
+                      distanceToDestination: Math.abs(m - destRoute.index)
+                    })
+                  }
+                }
+              }
+              
+              if (commonTransfer2.length > 0) {
+                // Sort by closest to destination
+                commonTransfer2.sort((a, b) => a.distanceToDestination - b.distanceToDestination)
+                
+                // Use optimal stations (closest to origin for first transfer, closest to destination for second)
+                const optimalTransfer1 = commonTransfer1[0]
+                const optimalTransfer2 = commonTransfer2[0]
+                
+                console.log(`✓ 2-Transfer route found: ${originValue} → ${optimalTransfer1.name} (Route ${originRoute.routeId}) → ${optimalTransfer2.name} (Route ${intermediateRouteId}) → ${destinationValue} (Route ${destRoute.routeId})`)
+                
+                // Calculate all 3 segments for 2-transfer route
+                const route1Coords = originRoute.routeId === '1' ? ROUTE_1_COORDINATES : 
+                                    originRoute.routeId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+                const route2Coords = intermediateRouteId === '1' ? ROUTE_1_COORDINATES : 
+                                    intermediateRouteId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+                const route3Coords = destRoute.routeId === '1' ? ROUTE_1_COORDINATES : 
+                                    destRoute.routeId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+                
+                // Segment 1: Origin → First Transfer
+                const originCoord = findClosestCoordinateIndex(route1Coords, originRoute.stations[originRoute.index].coords)
+                const transfer1Coord = findClosestCoordinateIndex(route1Coords, originRoute.stations[optimalTransfer1.originRouteIdx].coords)
+                const seg1 = route1Coords.slice(Math.min(originCoord, transfer1Coord), Math.max(originCoord, transfer1Coord) + 1)
+                
+                // Segment 2: First Transfer → Second Transfer
+                const transfer1OnRoute2 = findClosestCoordinateIndex(route2Coords, intermediateStations[optimalTransfer1.intermediateRouteIdx].coords)
+                const transfer2OnRoute2 = findClosestCoordinateIndex(route2Coords, intermediateStations[optimalTransfer2.intermediateRouteIdx].coords)
+                const seg2 = route2Coords.slice(Math.min(transfer1OnRoute2, transfer2OnRoute2), Math.max(transfer1OnRoute2, transfer2OnRoute2) + 1)
+                
+                // Segment 3: Second Transfer → Destination
+                const transfer2OnRoute3 = findClosestCoordinateIndex(route3Coords, destRoute.stations[optimalTransfer2.destRouteIdx].coords)
+                const destOnRoute3 = findClosestCoordinateIndex(route3Coords, destRoute.stations[destRoute.index].coords)
+                const seg3 = route3Coords.slice(Math.min(transfer2OnRoute3, destOnRoute3), Math.max(transfer2OnRoute3, destOnRoute3) + 1)
+                
+                // Set all 3 segments
+                setFirstRouteSegment(seg1)
+                setSecondRouteSegment(seg2)
+                setThirdRouteSegment(seg3)
+                setFirstRoute(originRoute.routeId + 'D')
+                setSecondRoute(intermediateRouteId + 'D')
+                setThirdRoute(destRoute.routeId + 'D')
+                setTransferStation(optimalTransfer1.name)
+                setSecondTransferStation(optimalTransfer2.name)
+                setSelectedRoute(originRoute.routeId)
+                setOriginStationIndex(originRoute.index)
+                setDestinationStationIndex(destRoute.index)
+                setSegmentCoordinates(null)
+                
+                // Center map on middle segment
+                if (seg2.length > 0) {
+                  const midPoint = seg2[Math.floor(seg2.length / 2)]
+                  setMapCenter([midPoint[0], midPoint[1]])
+                }
+                
+                return // Exit early, we found the route
+              }
+            }
+          }
+        }
       }
 
       if (bestTransfer) {
@@ -1058,15 +1282,30 @@ export default function App() {
       } else {
         // No origin specified, start from beginning
         setBus1Progress(0)
+        setBus1aProgress(0.4)
+        setBus1bProgress(0.7)
         setBus15Progress(0)
+        setBus15aProgress(0.5)
+        setBus7Progress(0)
+        setBus7aProgress(0.45)
       }
     } else {
       setBus1Progress(0)
+      setBus1aProgress(0.4)
+      setBus1bProgress(0.7)
       setBus15Progress(0)
+      setBus15aProgress(0.5)
+      setBus7Progress(0)
+      setBus7aProgress(0.45)
     }
     
     setBus1Bearing(0)
+    setBus1aBearing(0)
+    setBus1bBearing(0)
     setBus15Bearing(0)
+    setBus15aBearing(0)
+    setBus7Bearing(0)
+    setBus7aBearing(0)
     setBusIndex(0)
     setSelectedStation(null)
     
@@ -1142,7 +1381,7 @@ export default function App() {
   // Get active route coordinates for better distance calculation
   let activePath = []
   if (selectedRoute === '1') {
-    activePath = ROUTE_1_COORDINATES
+    activePath = routeDirection === 'D' ? ROUTE_1_COORDINATES : ROUTE_1U_COORDINATES
   } else if (selectedRoute === '15') {
     activePath = ROUTE_15_COORDINATES
   } else if (selectedRoute === '7') {
@@ -1426,7 +1665,7 @@ export default function App() {
 
         {/* NEON GLOWING ROUTES - SUPER-DENSE BRTS CORRIDOR */}
         {/* Multi-Route Transfer Visualization */}
-        {transferStation && firstRouteSegment && secondRouteSegment ? (
+        {(transferStation || secondTransferStation) && firstRouteSegment && secondRouteSegment ? (
           <>
             {/* First Route Segment - SOLID */}
             {firstRoute && firstRoute[0] === '1' && (
@@ -1530,6 +1769,59 @@ export default function App() {
                 }} 
               />
             )}
+
+            {/* Third Route Segment - DOTTED (for 2-transfer routes) */}
+            {thirdRouteSegment && thirdRoute && thirdRoute[0] === '1' && (
+              <>
+                <Polyline 
+                  positions={thirdRouteSegment} 
+                  pathOptions={{ 
+                    color: '#ff0055', 
+                    weight: 8, 
+                    opacity: 0.4,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    dashArray: '5, 15' // Dotted to distinguish third segment
+                  }} 
+                />
+                <Polyline 
+                  positions={thirdRouteSegment} 
+                  pathOptions={{ 
+                    color: '#ffffff', 
+                    weight: 2, 
+                    opacity: 1,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }} 
+                />
+              </>
+            )}
+            {thirdRouteSegment && thirdRoute && thirdRoute[0] === '1' && thirdRoute[1] === '5' && (
+              <Polyline 
+                positions={thirdRouteSegment} 
+                pathOptions={{ 
+                  color: '#00aaff', 
+                  weight: 8, 
+                  opacity: 0.8,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  dashArray: '5, 15'
+                }} 
+              />
+            )}
+            {thirdRouteSegment && thirdRoute && thirdRoute[0] === '7' && (
+              <Polyline 
+                positions={thirdRouteSegment} 
+                pathOptions={{ 
+                  color: '#cc00ff', 
+                  weight: 8, 
+                  opacity: 0.85,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  dashArray: '5, 15'
+                }} 
+              />
+            )}
           </>
         ) : (
           <>
@@ -1537,7 +1829,7 @@ export default function App() {
             {selectedRoute === '1' && (
               <>
                 <Polyline 
-                  positions={segmentCoordinates || ROUTE_1_COORDINATES} 
+                  positions={segmentCoordinates || (routeDirection === 'D' ? ROUTE_1_COORDINATES : ROUTE_1U_COORDINATES)} 
                   pathOptions={{ 
                     color: '#ff0055', 
                     weight: 8, 
@@ -1547,7 +1839,7 @@ export default function App() {
                   }} 
                 />
                 <Polyline 
-                  positions={segmentCoordinates || ROUTE_1_COORDINATES} 
+                  positions={segmentCoordinates || (routeDirection === 'D' ? ROUTE_1_COORDINATES : ROUTE_1U_COORDINATES)} 
                   pathOptions={{ 
                     color: '#ffffff', 
                     weight: 2, 
@@ -1594,65 +1886,113 @@ export default function App() {
         )}
 
         {/* 🚏 OFFICIAL STATION MARKERS (Click to view live info) */}
-        {/* Show stations from both routes when transfer is active */}
-        {transferStation && firstRoute && secondRoute ? (
+        {/* Show stations from all routes when transfer is active */}
+        {(transferStation || secondTransferStation) && firstRoute && secondRoute ? (
           <>
             {/* Stations from first route segment */}
-            {(firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS).map((station) => (
-              <CircleMarker
-                key={`station-first-${station.id}`}
-                center={station.coords}
-                radius={station.name === transferStation ? 12 : 8}
-                pathOptions={{
-                  color: station.name === transferStation 
-                    ? '#ffa500' 
-                    : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
-                  fillColor: station.name === transferStation 
-                    ? '#ffa500' 
-                    : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
-                  fillOpacity: 1
-                }}
-                weight={station.name === transferStation ? 3 : 2}
-                opacity={1}
-                eventHandlers={{
-                  click: () => handleStationClick(station)
-                }}
-              >
-                <Popup>
-                  {station.name === transferStation ? (
-                    <div style={{ textAlign: 'center' }}>
-                      <strong>🔄 TRANSFER STATION</strong><br/>
-                      {station.name}
-                    </div>
-                  ) : (
-                    station.name
-                  )}
-                </Popup>
-              </CircleMarker>
-            ))}
-            
-            {/* Stations from second route segment */}
-            {(secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
-              .filter(station => station.name !== transferStation) // Don't duplicate transfer station
-              .map((station) => (
+            {(firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS).map((station) => {
+              const isFirstTransfer = station.name === transferStation
+              const isSecondTransfer = station.name === secondTransferStation
+              const isTransfer = isFirstTransfer || isSecondTransfer
+              
+              return (
                 <CircleMarker
-                  key={`station-second-${station.id}`}
+                  key={`station-first-${station.id}`}
                   center={station.coords}
-                  radius={8}
+                  radius={isTransfer ? 12 : 9}
                   pathOptions={{
-                    color: secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : '#ff0055',
-                    fillColor: secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : '#ff0055',
+                    color: isTransfer
+                      ? '#ffa500' 
+                      : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                    fillColor: isTransfer
+                      ? '#ffa500' 
+                      : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
                     fillOpacity: 1
                   }}
-                  weight={2}
+                  weight={isTransfer ? 4 : 3}
                   opacity={1}
                   eventHandlers={{
                     click: () => handleStationClick(station)
                   }}
                 >
-                  <Popup>{station.name}</Popup>
+                  <Popup>
+                    {isTransfer ? (
+                      <div style={{ textAlign: 'center' }}>
+                        <strong>🔄 TRANSFER STATION</strong><br/>
+                        {station.name}
+                      </div>
+                    ) : (
+                      station.name
+                    )}
+                  </Popup>
                 </CircleMarker>
-              ))}
+              )
+            })}
+            
+            {/* Stations from second route segment */}
+            {(secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
+              .filter(station => station.name !== transferStation) // Don't duplicate first transfer
+              .map((station) => {
+                const isSecondTransfer = station.name === secondTransferStation
+                
+                return (
+                  <CircleMarker
+                    key={`station-second-${station.id}`}
+                    center={station.coords}
+                    radius={isSecondTransfer ? 12 : 9}
+                    pathOptions={{
+                      color: isSecondTransfer 
+                        ? '#ffa500' 
+                        : (secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                      fillColor: isSecondTransfer 
+                        ? '#ffa500' 
+                        : (secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                      fillOpacity: 1
+                    }}
+                    weight={isSecondTransfer ? 4 : 3}
+                    opacity={1}
+                    eventHandlers={{
+                      click: () => handleStationClick(station)
+                    }}
+                  >
+                    <Popup>
+                      {isSecondTransfer ? (
+                        <div style={{ textAlign: 'center' }}>
+                          <strong>🔄 TRANSFER STATION</strong><br/>
+                          {station.name}
+                        </div>
+                      ) : (
+                        station.name
+                      )}
+                    </Popup>
+                  </CircleMarker>
+                )
+              })}
+            
+            {/* Stations from third route segment (if exists) */}
+            {thirdRoute && thirdRouteSegment && (
+              (thirdRoute && thirdRoute[1] === '5' ? ROUTE_15_STATIONS : thirdRoute && thirdRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
+                .filter(station => station.name !== transferStation && station.name !== secondTransferStation)
+                .map((station) => (
+                  <CircleMarker
+                    key={`station-third-${station.id}`}
+                    center={station.coords}
+                    radius={9}
+                    pathOptions={{
+                      color: thirdRoute && thirdRoute[1] === '5' ? '#00aaff' : thirdRoute && thirdRoute[0] === '7' ? '#cc00ff' : '#ff0055',
+                      fillColor: thirdRoute && thirdRoute[1] === '5' ? '#00aaff' : thirdRoute && thirdRoute[0] === '7' ? '#cc00ff' : '#ff0055',
+                      fillOpacity: 1
+                    }}
+                    weight={3}
+                    opacity={1}
+                    eventHandlers={{
+                      click: () => handleStationClick(station)
+                    }}
+                  >
+                    <Popup>{station.name}</Popup>
+                  </CircleMarker>
+                ))
+            )}
           </>
         ) : (
           /* Single route - show only selected route stations */
@@ -1676,23 +2016,23 @@ export default function App() {
             <CircleMarker
               key={`station-${station.id}`}
               center={station.coords}
-              radius={selectedRoute === '15' || selectedRoute === '7' ? 8 : 6}
+              radius={selectedRoute === '15' || selectedRoute === '7' ? 10 : 9}
               pathOptions={{
                 color: selectedStation?.id === station.id
-                  ? '#00eaff'
+                  ? '#00ffff'
                   : (selectedRoute === '15'
-                    ? '#00aaff'
+                    ? '#ffffff'
                     : selectedRoute === '7'
-                      ? '#cc00ff'
-                      : 'white'),
+                      ? '#ffffff'
+                      : '#ffffff'),
                 fillColor: selectedRoute === '15'
                   ? '#00aaff'
                   : selectedRoute === '7'
                     ? '#cc00ff'
-                    : 'white',
-                fillOpacity: selectedRoute === '15' || selectedRoute === '7' ? 1 : 0.95
+                    : '#ff0055',
+                fillOpacity: 1
               }}
-              weight={2}
+              weight={3}
               opacity={1}
               eventHandlers={{
                 click: () => handleStationClick(station)
@@ -1703,31 +2043,129 @@ export default function App() {
           ))
         )}
 
-        {/* 🔄 TRANSFER STATION MARKER - Special highlight removed as it's now integrated above */}
-        {transferStation && firstRouteSegment && secondRouteSegment && null}
+        {/* 🔄 TRANSFER STATION MARKERS - Show optimal transfer points */}
+        {(transferStation || secondTransferStation) && (
+          <>
+            {/* First Transfer Station Marker */}
+            {transferStation && (
+              <Marker
+                position={
+                  (firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
+                    .find(s => s.name === transferStation)?.coords || [0, 0]
+                }
+                icon={L.divIcon({
+                  html: `<div style="
+                    width: 40px;
+                    height: 40px;
+                    background: radial-gradient(circle, #ffa500 0%, #ff8c00 70%);
+                    border: 3px solid #ffffff;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 20px;
+                    box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 40px rgba(255, 165, 0, 0.4);
+                  ">🔄</div>`,
+                  iconSize: [40, 40],
+                  className: 'transfer-icon'
+                })}
+              >
+                <Popup>
+                  <div style={{ textAlign: 'center' }}>
+                    <strong>🔄 Transfer Point 1</strong><br/>
+                    {transferStation}
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+            
+            {/* Second Transfer Station Marker */}
+            {secondTransferStation && (
+              <Marker
+                position={
+                  (secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
+                    .find(s => s.name === secondTransferStation)?.coords || [0, 0]
+                }
+                icon={L.divIcon({
+                  html: `<div style="
+                    width: 40px;
+                    height: 40px;
+                    background: radial-gradient(circle, #ffa500 0%, #ff8c00 70%);
+                    border: 3px solid #ffffff;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 20px;
+                    box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 40px rgba(255, 165, 0, 0.4);
+                  ">🔄</div>`,
+                  iconSize: [40, 40],
+                  className: 'transfer-icon'
+                })}
+              >
+                <Popup>
+                  <div style={{ textAlign: 'center' }}>
+                    <strong>🔄 Transfer Point 2</strong><br/>
+                    {secondTransferStation}
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+          </>
+        )}
 
         {/* MOVING BUS ICONS WITH ROTATION - HIGH-FIDELITY */}
+        {/* Route 1 - Multiple Parallel Buses */}
         {selectedRoute === '1' && (
-          <Marker
-            position={getPositionAlongRoute(ROUTE_1_COORDINATES, bus1Progress).position}
-            icon={createBusIcon('#ff0055', bus1Bearing)}
-          />
+          <>
+            {/* Primary Bus */}
+            <Marker
+              position={getPositionAlongRoute(routeDirection === 'D' ? ROUTE_1_COORDINATES : ROUTE_1U_COORDINATES, bus1Progress).position}
+              icon={createBusIcon('#ff0055', bus1Bearing)}
+            />
+            {/* Parallel Bus A */}
+            <Marker
+              position={getPositionAlongRoute(routeDirection === 'D' ? ROUTE_1_COORDINATES : ROUTE_1U_COORDINATES, bus1aProgress).position}
+              icon={createBusIcon('#ff0055', bus1aBearing)}
+            />
+            {/* Parallel Bus B */}
+            <Marker
+              position={getPositionAlongRoute(routeDirection === 'D' ? ROUTE_1_COORDINATES : ROUTE_1U_COORDINATES, bus1bProgress).position}
+              icon={createBusIcon('#ff0055', bus1bBearing)}
+            />
+          </>
         )}
 
-        {/* Route 15 Bus Marker */}
+        {/* Route 15 - Multiple Parallel Buses */}
         {selectedRoute === '15' && (
-          <Marker
-            position={getPositionAlongRoute(ROUTE_15_COORDINATES, bus15Progress).position}
-            icon={createBusIcon('#00aaff', bus15Bearing)}
-          />
+          <>
+            {/* Primary Bus */}
+            <Marker
+              position={getPositionAlongRoute(ROUTE_15_COORDINATES, bus15Progress).position}
+              icon={createBusIcon('#00aaff', bus15Bearing)}
+            />
+            {/* Parallel Bus A */}
+            <Marker
+              position={getPositionAlongRoute(ROUTE_15_COORDINATES, bus15aProgress).position}
+              icon={createBusIcon('#00aaff', bus15aBearing)}
+            />
+          </>
         )}
 
-        {/* Route 7 Bus Marker */}
+        {/* Route 7 - Multiple Parallel Buses */}
         {selectedRoute === '7' && (
-          <Marker
-            position={getPositionAlongRoute(ROUTE_7_COORDINATES, bus15Progress).position}
-            icon={createBusIcon('#cc00ff', bus15Bearing)}
-          />
+          <>
+            {/* Primary Bus */}
+            <Marker
+              position={getPositionAlongRoute(ROUTE_7_COORDINATES, bus7Progress).position}
+              icon={createBusIcon('#cc00ff', bus7Bearing)}
+            />
+            {/* Parallel Bus A */}
+            <Marker
+              position={getPositionAlongRoute(ROUTE_7_COORDINATES, bus7aProgress).position}
+              icon={createBusIcon('#cc00ff', bus7aBearing)}
+            />
+          </>
         )}
       </MapContainer>
 
