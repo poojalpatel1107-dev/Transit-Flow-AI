@@ -942,14 +942,15 @@ export default function App() {
       })
       
       if (!response.ok) {
-        throw new Error(`Route not found: ${originValue} → ${destinationValue}`)
+        const errorData = await response.json()
+        throw new Error(errorData.detail || `Route not found: ${originValue} → ${destinationValue}`)
       }
       
       const journeyData = await response.json()
       
       console.log('✅ Journey Path Received:', {
-        route: journeyData.route_id,
-        direction: journeyData.direction,
+        route: journeyData.route_id || `${journeyData.route_1}→${journeyData.route_2}`,
+        transfer: journeyData.transfer,
         nodes: journeyData.total_nodes,
         distance: journeyData.total_distance_km,
         eta: journeyData.eta_minutes
@@ -957,15 +958,25 @@ export default function App() {
       
       // Frontend: Simply use the path provided by backend
       setSegmentCoordinates(journeyData.path)
-      setSelectedRoute(journeyData.route_id)
-      setRouteDirection(journeyData.direction.includes('↓') ? 'D' : 'U')
+      setRouteDirection(journeyData.direction?.includes('↓') ? 'D' : 'U')
       
-      // Clear transfer state (backend handles it)
-      setTransferStation(null)
-      setFirstRouteSegment(null)
-      setSecondRouteSegment(null)
-      setFirstRoute(null)
-      setSecondRoute(null)
+      if (journeyData.transfer) {
+        // Multi-route transfer
+        setSelectedRoute(journeyData.route_1)
+        setFirstRoute(journeyData.route_1)
+        setSecondRoute(journeyData.route_2)
+        setTransferStation(journeyData.transfer_station)
+        setFirstRouteSegment(journeyData.path)
+        setSecondRouteSegment([])
+      } else {
+        // Single route
+        setSelectedRoute(journeyData.route_id)
+        setTransferStation(null)
+        setFirstRouteSegment(null)
+        setSecondRouteSegment(null)
+        setFirstRoute(null)
+        setSecondRoute(null)
+      }
       
       // Center map on journey
       if (journeyData.path && journeyData.path.length > 0) {

@@ -45,7 +45,9 @@ ROUTE_DISTANCES = {
 # ============================================================================
 ROUTE_1_STOPS = [
     "ISKCON Cross Road",
-    "Ramdev Nagar",
+    "ISRO Colony",
+    "Star Bazaar",
+    "Jodhpur Char Rasta",
     "Shivranjani",
     "Jhansi Ki Rani",
     "Nehrunagar",
@@ -55,18 +57,20 @@ ROUTE_1_STOPS = [
 ]
 
 ROUTE_7_STOPS = [
-    "Airport Circle",
-    "Sardarnagar",
-    "Hansol",
-    "Bhat",
-    "Motera Stadium"
+    "Ranip Cross-Road",
+    "RTO Circle",
+    "Sabarmati Power-House",
+    "Sabarmati Police Station",
+    "Motera Cross-Road",
+    "Visat-Gandhinagar Junction",
+    "Vishwakarma Government Engineering College"
 ]
 
 ROUTE_15_STOPS = [
-    "ISKCON",
+    "ISKCON Cross Road",
     "ISRO Colony",
     "Star Bazaar",
-    "Jodhpur",
+    "Jodhpur Char Rasta",
     "Himmatlal Park",
     "University",
     "Memnagar",
@@ -76,7 +80,7 @@ ROUTE_15_STOPS = [
     "Akbarnagar",
     "Ranip Cross-Road",
     "RTO Circle",
-    "Airport"
+    "Ahmedabad Domestic Airport"
 ]
 
 # Average distance between consecutive stops (simplified for physics)

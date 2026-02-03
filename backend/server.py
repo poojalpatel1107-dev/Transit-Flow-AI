@@ -328,7 +328,7 @@ def get_insight(
 def calculate_journey(request_data: dict):
     """
     Calculate exact journey path from origin to destination.
-    Backend handles all path slicing and reversal logic.
+    Handles both single-route and multi-route (transfer) journeys.
     
     Request:
     {
@@ -336,25 +336,30 @@ def calculate_journey(request_data: dict):
         "destination": "Shivranjani"
     }
     
-    Response:
+    Response (Single Route):
     {
-        "path": [[lat, lng], ...],           # Exact coordinate array for journey
-        "total_nodes": 15,                   # Number of coordinates
-        "total_distance_km": 5.2,
-        "eta_minutes": 12,
+        "path": [[lat, lng], ...],
         "route_id": "1",
         "direction": "Onward (↓)",
-        "origin": "Anjali Cross Road",
-        "destination": "Shivranjani"
+        ...
+    }
+    
+    Response (Multi-Route Transfer):
+    {
+        "path": [[lat, lng], ...],  # Concatenated segments
+        "route_1": "1D",
+        "route_2": "15D",
+        "transfer_station": "Jodhpur Char Rasta",
+        ...
     }
     """
-    origin = request_data.get("origin")
-    destination = request_data.get("destination")
+    origin = request_data.get("origin", "").strip()
+    destination = request_data.get("destination", "").strip()
     
     if not origin or not destination:
         raise HTTPException(status_code=400, detail="Missing origin or destination")
     
-    # Define route mappings for quick lookup
+    # Define route mappings
     routes_map = {
         '1': {
             'stops': ROUTE_1_STOPS,
@@ -373,66 +378,159 @@ def calculate_journey(request_data: dict):
         }
     }
     
-    # Find which route contains both stations
-    route_id = None
-    origin_idx = -1
-    dest_idx = -1
-    
-    for rid, route_data in routes_map.items():
+    # ========== STEP 1: Find direct route ==========
+    for route_id, route_data in routes_map.items():
         stops = route_data['stops']
-        # Try exact match first
         origin_idx = next((i for i, s in enumerate(stops) if s.lower() == origin.lower()), -1)
         dest_idx = next((i for i, s in enumerate(stops) if s.lower() == destination.lower()), -1)
         
         if origin_idx != -1 and dest_idx != -1:
-            route_id = rid
-            break
+            # Direct route found
+            return _calculate_direct_path(route_id, origin_idx, dest_idx, origin, destination, routes_map)
     
-    if route_id is None:
-        raise HTTPException(status_code=404, detail=f"No direct route between {origin} and {destination}")
+    # ========== STEP 2: Find transfer route ==========
+    transfer_result = _find_transfer_route(origin, destination, routes_map)
+    if transfer_result:
+        return transfer_result
     
-    # Get route data
+    # No route found
+    raise HTTPException(status_code=404, detail=f"No route found between {origin} and {destination}")
+
+
+def _calculate_direct_path(route_id, origin_idx, dest_idx, origin, destination, routes_map):
+    """Calculate path for single-route journey"""
     route = routes_map[route_id]
     full_trace = route['trace']
     indices = route['indices']
+    stops = route['stops']
     
-    # Get coordinate indices from the indices mapping
-    # If exact index not found, use approximate nearest
-    start_idx = indices.get(origin)
-    end_idx = indices.get(destination)
+    # Get coordinate indices
+    start_idx = indices.get(stops[origin_idx])
+    end_idx = indices.get(stops[dest_idx])
     
     if start_idx is None or end_idx is None:
-        # Fallback: try to use station order to estimate indices
-        start_idx = int(len(full_trace) * (origin_idx / len(route['stops'])))
-        end_idx = int(len(full_trace) * (dest_idx / len(route['stops'])))
+        # Fallback: estimate based on station position
+        start_idx = int(len(full_trace) * (origin_idx / len(stops)))
+        end_idx = int(len(full_trace) * (dest_idx / len(stops)))
     
-    # Extract path segment (handle both directions automatically)
+    # Extract path (handle reverse)
     if start_idx < end_idx:
-        # Forward direction
         path = full_trace[start_idx : end_idx + 1]
         direction = "Onward (↓)"
     else:
-        # Reverse direction - slice and reverse
         path = full_trace[end_idx : start_idx + 1][::-1]
         direction = "Return (↑)"
     
-    # Calculate distance (rough estimate: ~0.3 km per 10 coordinates)
-    distance_km = (len(path) * 0.3) / 10
-    
-    # Calculate ETA (using commercial speed)
+    distance_km = round((len(path) * 0.3) / 10, 2)
     eta_minutes = int((distance_km / COMMERCIAL_SPEED_KMH) * 60)
     
     return {
         "path": path,
         "total_nodes": len(path),
-        "total_distance_km": round(distance_km, 2),
+        "total_distance_km": distance_km,
         "eta_minutes": eta_minutes,
         "route_id": route_id,
         "direction": direction,
         "origin": origin,
         "destination": destination,
+        "transfer": False,
         "timestamp": datetime.now().isoformat()
     }
+
+
+def _find_transfer_route(origin, destination, routes_map):
+    """Find multi-route transfer path"""
+    
+    # Find all routes containing origin and destination
+    routes_with_origin = []
+    routes_with_dest = []
+    
+    for route_id, route_data in routes_map.items():
+        stops = route_data['stops']
+        
+        origin_idx = next((i for i, s in enumerate(stops) if s.lower() == origin.lower()), -1)
+        dest_idx = next((i for i, s in enumerate(stops) if s.lower() == destination.lower()), -1)
+        
+        if origin_idx != -1:
+            routes_with_origin.append({'route_id': route_id, 'index': origin_idx})
+        if dest_idx != -1:
+            routes_with_dest.append({'route_id': route_id, 'index': dest_idx})
+    
+    # Try single transfer (origin_route → transfer_station → dest_route)
+    for origin_route in routes_with_origin:
+        for dest_route in routes_with_dest:
+            if origin_route['route_id'] == dest_route['route_id']:
+                continue  # Same route, already checked
+            
+            # Find common stations
+            origin_stops = routes_map[origin_route['route_id']]['stops']
+            dest_stops = routes_map[dest_route['route_id']]['stops']
+            
+            common_stations = [s for s in origin_stops if s in dest_stops and s != origin and s != destination]
+            
+            if common_stations:
+                # Use first common station as transfer point
+                transfer_station = common_stations[0]
+                transfer_idx_origin = origin_stops.index(transfer_station)
+                transfer_idx_dest = dest_stops.index(transfer_station)
+                
+                # Calculate first segment
+                path1 = _calculate_segment(
+                    origin_route['route_id'],
+                    origin_route['index'],
+                    transfer_idx_origin,
+                    routes_map
+                )
+                
+                # Calculate second segment
+                path2 = _calculate_segment(
+                    dest_route['route_id'],
+                    transfer_idx_dest,
+                    dest_route['index'],
+                    routes_map
+                )
+                
+                if path1 and path2:
+                    # Concatenate paths
+                    full_path = path1[:-1] + path2  # Remove duplicate transfer station
+                    distance_km = round((len(full_path) * 0.3) / 10, 2)
+                    eta_minutes = int((distance_km / COMMERCIAL_SPEED_KMH) * 60 + 180)  # +3min for transfer
+                    
+                    return {
+                        "path": full_path,
+                        "total_nodes": len(full_path),
+                        "total_distance_km": distance_km,
+                        "eta_minutes": eta_minutes,
+                        "transfer": True,
+                        "route_1": origin_route['route_id'],
+                        "route_2": dest_route['route_id'],
+                        "transfer_station": transfer_station,
+                        "origin": origin,
+                        "destination": destination,
+                        "timestamp": datetime.now().isoformat()
+                    }
+    
+    return None
+
+
+def _calculate_segment(route_id, start_station_idx, end_station_idx, routes_map):
+    """Calculate path for a segment between two stations on same route"""
+    route = routes_map[route_id]
+    full_trace = route['trace']
+    indices = route['indices']
+    stops = route['stops']
+    
+    start_idx = indices.get(stops[start_station_idx])
+    end_idx = indices.get(stops[end_station_idx])
+    
+    if start_idx is None or end_idx is None:
+        start_idx = int(len(full_trace) * (start_station_idx / len(stops)))
+        end_idx = int(len(full_trace) * (end_station_idx / len(stops)))
+    
+    if start_idx < end_idx:
+        return full_trace[start_idx : end_idx + 1]
+    else:
+        return full_trace[end_idx : start_idx + 1][::-1]
 
 if __name__ == "__main__":
     import uvicorn
