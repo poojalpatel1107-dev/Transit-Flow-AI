@@ -414,9 +414,13 @@ export default function App() {
     setIsStationLoading(true)
     setStationAnalytics(null)
 
+    // Get analytics for the station
     const analytics = await Promise.resolve(getStationAnalytics(station.id))
     setStationAnalytics(analytics)
     setIsStationLoading(false)
+    
+    // Center map on clicked station
+    setMapCenter(station.coords)
   }
 
   // 🚌 DISTANCE-BASED CONSTANT SPEED BUS ANIMATION (ALL ROUTES)
@@ -425,40 +429,62 @@ export default function App() {
   const hasStoppedAtRef = useRef(new Set()) // Track visited stations
 
   useEffect(() => {
-    // SELECT THE CORRECT PHYSICAL PATH based on selectedRoute and direction
+    // Determine the actual path the bus should take based on the journey
     let activePath = []
     let activeStations = []
+    let isMultiRouteJourney = false
 
-    if (selectedRoute === '1') {
-      activePath = routeDirection === 'D' ? ROUTE_1_COORDINATES : ROUTE_1U_COORDINATES
-      activeStations = routeDirection === 'D' ? STATIONS : [...STATIONS].reverse()
-      // Initialize parallel bus positions when switching to Route 1
-      setBus1aProgress(0.4)
-      setBus1bProgress(0.7)
-    } else if (selectedRoute === '15') {
-      activePath = ROUTE_15_COORDINATES
-      activeStations = ROUTE_15_STATIONS
-      // Initialize parallel bus position when switching to Route 15
-      setBus15aProgress(0.5)
-    } else if (selectedRoute === '7') {
-      activePath = ROUTE_7_COORDINATES
-      activeStations = ROUTE_7_STATIONS
-      // Initialize parallel bus position when switching to Route 7
-      setBus7aProgress(0.45)
-    }
-
-    // Use segment coordinates if available (for origin-destination specific routes)
-    if (segmentCoordinates && segmentCoordinates.length > 0) {
+    // PRIORITY 1: Journey segment on single route (e.g., Anjali → ISKCON on Route 1)
+    if (segmentCoordinates && segmentCoordinates.length > 0 && !transferStation && !secondTransferStation) {
       activePath = segmentCoordinates
+      
+      if (selectedRoute === '1') {
+        activeStations = STATIONS
+      } else if (selectedRoute === '15') {
+        activeStations = ROUTE_15_STATIONS
+      } else if (selectedRoute === '7') {
+        activeStations = ROUTE_7_STATIONS
+      }
     }
-    // For transfer routes with multiple segments, concatenate all segments
+    // PRIORITY 2: Multi-route transfer journey (e.g., Route 1 → Route 15 at transfer station)
     else if ((transferStation || secondTransferStation) && firstRouteSegment && secondRouteSegment) {
-      // Combine all available transfer segments for continuous animation
+      // Concatenate route segments for seamless animation
       if (thirdRouteSegment) {
         activePath = [...firstRouteSegment, ...secondRouteSegment, ...thirdRouteSegment]
       } else {
         activePath = [...firstRouteSegment, ...secondRouteSegment]
       }
+      
+      // Get stations from all routes involved
+      const firstRouteStations = firstRoute && firstRoute.includes('15') ? ROUTE_15_STATIONS : 
+                                 firstRoute && firstRoute.includes('7') ? ROUTE_7_STATIONS : STATIONS
+      const secondRouteStations = secondRoute && secondRoute.includes('15') ? ROUTE_15_STATIONS : 
+                                  secondRoute && secondRoute.includes('7') ? ROUTE_7_STATIONS : STATIONS
+      
+      activeStations = [...firstRouteStations, ...secondRouteStations]
+      isMultiRouteJourney = true
+    }
+    // PRIORITY 3: Full route display (browsing mode, no specific journey)
+    else {
+      if (selectedRoute === '1') {
+        activePath = ROUTE_1_COORDINATES
+        activeStations = STATIONS
+        setBus1aProgress(0.4)
+        setBus1bProgress(0.7)
+      } else if (selectedRoute === '15') {
+        activePath = ROUTE_15_COORDINATES
+        activeStations = ROUTE_15_STATIONS
+        setBus15aProgress(0.5)
+      } else if (selectedRoute === '7') {
+        activePath = ROUTE_7_COORDINATES
+        activeStations = ROUTE_7_STATIONS
+        setBus7aProgress(0.45)
+      }
+    }
+
+    if (activePath.length === 0) {
+      console.warn('No active path defined for bus animation')
+      return
     }
 
     let segmentStartTime = null
@@ -491,16 +517,17 @@ export default function App() {
         }
       }
 
-      // Determine movement direction based on routeDirection
-      const movingForward = routeDirection === 'D'
-      
+      // Bus always moves forward along the journey path (activePath)
+      // The path is already oriented correctly based on origin→destination
       const start = activePath[currentIndex]
-      const nextIndex = movingForward 
-        ? Math.min(currentIndex + 1, activePath.length - 1)
-        : Math.max(currentIndex - 1, 0)
+      const nextIndex = Math.min(currentIndex + 1, activePath.length - 1)
       const end = activePath[nextIndex]
 
-      if (!end || !start) {
+      if (!end || !start || currentIndex >= activePath.length - 1) {
+        // Journey complete - loop back to start
+        currentIndex = 0
+        segmentStartTime = timestamp
+        hasStoppedAtRef.current.clear()
         requestAnimationFrame(animate)
         return
       }
@@ -523,12 +550,17 @@ export default function App() {
         hasStoppedAtRef.current.add(nearbyStation.id)
         isPausedRef.current = true
         pauseStartTime = timestamp
-        setBusStatus(`🛑 Route ${selectedRoute} ${getRouteDirectionLabel(routeDirection)} • Stopped at ${nearbyStation.name}`)
+        const routeLabel = isMultiRouteJourney ? 
+          `${firstRoute} → ${secondRoute}` : 
+          `Route ${selectedRoute} ${getRouteDirectionLabel(routeDirection)}`
+        setBusStatus(`🛑 ${routeLabel} • Stopped at ${nearbyStation.name}`)
         requestAnimationFrame(animate)
         return
       }
 
-      const overallProgress = currentIndex / Math.max(totalSegments, 1)
+      const overallProgress = (currentIndex + segmentProgress) / Math.max(totalSegments, 1)
+
+      setBusPosition({ coords: position, bearing, progress: overallProgress })
 
       // Update bus progress based on active route or transfer
       if ((transferStation || secondTransferStation) && firstRoute && secondRoute) {
@@ -588,17 +620,7 @@ export default function App() {
       }
 
       if (segmentProgress >= 1) {
-        if (movingForward) {
-          currentIndex = Math.min(currentIndex + 1, totalSegments)
-          if (currentIndex >= totalSegments) {
-            currentIndex = 0 // Loop back
-          }
-        } else {
-          currentIndex = Math.max(currentIndex - 1, 0)
-          if (currentIndex <= 0) {
-            currentIndex = totalSegments - 1 // Loop back
-          }
-        }
+        currentIndex = Math.min(currentIndex + 1, activePath.length - 1)
         segmentStartTime = timestamp
       }
 
@@ -607,7 +629,7 @@ export default function App() {
 
     const raf = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(raf)
-  }, [selectedRoute, routeDirection, segmentCoordinates, firstRouteSegment, secondRouteSegment, thirdRouteSegment, bus1aProgress, bus1bProgress, bus15aProgress, bus7Progress, bus7aProgress])
+  }, [selectedRoute, segmentCoordinates, firstRouteSegment, secondRouteSegment, thirdRouteSegment, transferStation, secondTransferStation, firstRoute, secondRoute])
 
   // 🎯 ORIGIN-BASED POSITIONING: Position bus at origin station when incoming
   useEffect(() => {
@@ -894,7 +916,8 @@ export default function App() {
     }
   }
 
-  const findRoute = (fromLocation = null, toLocation = null) => {
+  // 🚀 SIMPLIFIED ROUTE FINDER: Backend handles all path calculation
+  const findRoute = async (fromLocation = null, toLocation = null) => {
     const originValue = fromLocation || origin
     const destinationValue = toLocation || destination
     
@@ -906,340 +929,56 @@ export default function App() {
     // Set state to show insights panel
     setOrigin(originValue)
     setDestination(destinationValue)
-
-    let foundRoute = null
-    let originIdx = -1
-    let destIdx = -1
-    let originRouteId = null
-    let destRouteId = null
-
-    // First, check for direct routes (origin and destination on same route)
-    for (const [routeId, stations] of Object.entries(ROUTE_MAP)) {
-      originIdx = stations.findIndex(s => s.name === originValue || s.id?.toString() === originValue)
-      destIdx = stations.findIndex(s => s.name === destinationValue || s.id?.toString() === destinationValue)
-
-      if (originIdx !== -1 && destIdx !== -1) {
-        foundRoute = routeId
-        
-        // Determine route direction
-        const direction = getRouteDirection(stations, originValue, destinationValue)
-        
-        // Calculate route segment coordinates
-        let routeCoords = []
-        if (routeId === '1') {
-          routeCoords = ROUTE_1_COORDINATES
-        } else if (routeId === '15') {
-          routeCoords = ROUTE_15_COORDINATES
-        } else if (routeId === '7') {
-          routeCoords = ROUTE_7_COORDINATES
-        }
-        
-        // Extract segment between origin and destination stations
-        const originStation = stations[originIdx]
-        const destStation = stations[destIdx]
-        
-        // Find closest coordinate indices for origin and destination
-        const originCoordIdx = findClosestCoordinateIndex(routeCoords, originStation.coords)
-        const destCoordIdx = findClosestCoordinateIndex(routeCoords, destStation.coords)
-        
-        // Ensure correct order (handle reverse direction)
-        const startIdx = Math.min(originCoordIdx, destCoordIdx)
-        const endIdx = Math.max(originCoordIdx, destCoordIdx)
-        
-        // Extract segment
-        const segment = routeCoords.slice(startIdx, endIdx + 1)
-        
-        setOriginStationIndex(originIdx)
-        setDestinationStationIndex(destIdx)
-        setSegmentCoordinates(segment)
-        setRouteDirection(direction)
-        
-        // Clear transfer state for direct routes
-        setTransferStation(null)
-        setFirstRouteSegment(null)
-        setSecondRouteSegment(null)
-        setFirstRoute(null)
-        setSecondRoute(null)
-        
-        break
-      }
-    }
-
-    // If no direct route found, check for transfer routes
-    if (!foundRoute) {
-      // Find ALL routes that have origin and destination
-      const routesWithOrigin = []
-      const routesWithDest = []
-      
-      for (const [routeId, stations] of Object.entries(ROUTE_MAP)) {
-        const originIndex = stations.findIndex(s => s.name === originValue || s.id?.toString() === originValue)
-        const destIndex = stations.findIndex(s => s.name === destinationValue || s.id?.toString() === destinationValue)
-        
-        if (originIndex !== -1) {
-          routesWithOrigin.push({ routeId, index: originIndex, stations })
-        }
-        if (destIndex !== -1) {
-          routesWithDest.push({ routeId, index: destIndex, stations })
-        }
-      }
-      
-      console.log('🔍 Transfer Detection:', {
-        origin: originValue,
-        destination: destinationValue,
-        routesWithOrigin: routesWithOrigin.map(r => `Route ${r.routeId}`),
-        routesWithDest: routesWithDest.map(r => `Route ${r.routeId}`)
+    
+    try {
+      // Call backend API to calculate exact journey path
+      const response = await fetch('http://localhost:8000/api/calculate-journey', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin: originValue,
+          destination: destinationValue
+        })
       })
-
-      // Try to find a route combination with a common transfer station
-      let bestTransfer = null
       
-      for (const originRoute of routesWithOrigin) {
-        for (const destRoute of routesWithDest) {
-          if (originRoute.routeId === destRoute.routeId) continue // Skip same route
-          
-          console.log(`Checking transfer between Route ${originRoute.routeId} and Route ${destRoute.routeId}`)
-          
-          // Find ALL common stations and pick the OPTIMAL one
-          const commonStations = []
-          for (let i = 0; i < originRoute.stations.length; i++) {
-            for (let j = 0; j < destRoute.stations.length; j++) {
-              if (originRoute.stations[i].name === destRoute.stations[j].name) {
-                const transferStationName = originRoute.stations[i].name
-                
-                // Check that transfer station is different from origin and destination
-                if (transferStationName !== originValue && transferStationName !== destinationValue) {
-                  commonStations.push({
-                    name: transferStationName,
-                    originRouteIdx: i,
-                    destRouteIdx: j,
-                    originRouteDistance: Math.abs(i - originRoute.index), // Distance from origin
-                    destRouteDistance: Math.abs(j - destRoute.index) // Distance to destination
-                  })
-                }
-              }
-            }
-          }
-          
-          if (commonStations.length > 0) {
-            // Sort by: considering travel direction
-            // If traveling 'D' (forward), prefer stations ahead that are not too far
-            // If traveling 'U' (backward), prefer stations behind that are not too far
-            const travelDirection = originRoute.index <= (originRoute.stations.length - 1) / 2 ? 'D' : 'U'
-            
-            commonStations.sort((a, b) => {
-              // Primary: closest to origin (shortest first leg) - always preferred
-              if (a.originRouteDistance !== b.originRouteDistance) {
-                return a.originRouteDistance - b.originRouteDistance
-              }
-              // Secondary: if same distance from origin, prefer closer to destination
-              return a.destRouteDistance - b.destRouteDistance
-            })
-            
-            const optimalTransfer = commonStations[0]
-            
-            bestTransfer = {
-              originRouteId: originRoute.routeId,
-              destRouteId: destRoute.routeId,
-              originIdx: originRoute.index,
-              destIdx: destRoute.index,
-              transferStation: optimalTransfer.name,
-              transferIdxOriginRoute: optimalTransfer.originRouteIdx,
-              transferIdxDestRoute: optimalTransfer.destRouteIdx,
-              originStations: originRoute.stations,
-              destStations: destRoute.stations,
-              originDirection: optimalTransfer.originRouteIdx > originRoute.index ? 'D' : 'U',
-              destDirection: destRoute.index > optimalTransfer.destRouteIdx ? 'D' : 'U'
-            }
-            console.log(`✓ Optimal transfer found at: ${optimalTransfer.name} (distance from origin: ${optimalTransfer.originRouteDistance})`)
-          }
-        }
-        if (bestTransfer) break
+      if (!response.ok) {
+        throw new Error(`Route not found: ${originValue} → ${destinationValue}`)
       }
       
-      // If no direct transfer found, try 2-transfer route (via intermediate route)
-      if (!bestTransfer && routesWithOrigin.length > 0 && routesWithDest.length > 0) {
-        console.log('No direct transfer found, checking 2-transfer routes...')
-        
-        // Check all possible intermediate routes
-        const allRoutes = Object.entries(ROUTE_MAP)
-        
-        for (const originRoute of routesWithOrigin) {
-          for (const [intermediateRouteId, intermediateStations] of allRoutes) {
-            if (intermediateRouteId === originRoute.routeId) continue
-            
-            // Find ALL common stations between origin route and intermediate route
-            const commonTransfer1 = []
-            for (let i = 0; i < originRoute.stations.length; i++) {
-              for (let j = 0; j < intermediateStations.length; j++) {
-                if (originRoute.stations[i].name === intermediateStations[j].name &&
-                    originRoute.stations[i].name !== originValue) {
-                  commonTransfer1.push({
-                    name: originRoute.stations[i].name,
-                    originRouteIdx: i,
-                    intermediateRouteIdx: j,
-                    distanceFromOrigin: Math.abs(i - originRoute.index)
-                  })
-                }
-              }
-            }
-            
-            if (commonTransfer1.length === 0) continue
-            
-            // Sort by closest to origin
-            commonTransfer1.sort((a, b) => a.distanceFromOrigin - b.distanceFromOrigin)
-            
-            // Find common station between intermediate route and destination route
-            for (const destRoute of routesWithDest) {
-              if (destRoute.routeId === intermediateRouteId) continue
-              
-              // Find ALL common stations between intermediate and destination routes
-              const commonTransfer2 = []
-              for (let k = 0; k < intermediateStations.length; k++) {
-                for (let m = 0; m < destRoute.stations.length; m++) {
-                  if (intermediateStations[k].name === destRoute.stations[m].name &&
-                      intermediateStations[k].name !== destinationValue &&
-                      commonTransfer1.some(ct1 => ct1.name !== intermediateStations[k].name)) { // Different from first transfer
-                    
-                    commonTransfer2.push({
-                      name: intermediateStations[k].name,
-                      intermediateRouteIdx: k,
-                      destRouteIdx: m,
-                      distanceToDestination: Math.abs(m - destRoute.index)
-                    })
-                  }
-                }
-              }
-              
-              if (commonTransfer2.length > 0) {
-                // Sort by closest to destination
-                commonTransfer2.sort((a, b) => a.distanceToDestination - b.distanceToDestination)
-                
-                // Use optimal stations (closest to origin for first transfer, closest to destination for second)
-                const optimalTransfer1 = commonTransfer1[0]
-                const optimalTransfer2 = commonTransfer2[0]
-                
-                console.log(`✓ 2-Transfer route found: ${originValue} → ${optimalTransfer1.name} (Route ${originRoute.routeId}) → ${optimalTransfer2.name} (Route ${intermediateRouteId}) → ${destinationValue} (Route ${destRoute.routeId})`)
-                
-                // Calculate all 3 segments for 2-transfer route
-                const route1Coords = originRoute.routeId === '1' ? ROUTE_1_COORDINATES : 
-                                    originRoute.routeId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
-                const route2Coords = intermediateRouteId === '1' ? ROUTE_1_COORDINATES : 
-                                    intermediateRouteId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
-                const route3Coords = destRoute.routeId === '1' ? ROUTE_1_COORDINATES : 
-                                    destRoute.routeId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
-                
-                // Segment 1: Origin → First Transfer
-                const originCoord = findClosestCoordinateIndex(route1Coords, originRoute.stations[originRoute.index].coords)
-                const transfer1Coord = findClosestCoordinateIndex(route1Coords, originRoute.stations[optimalTransfer1.originRouteIdx].coords)
-                const seg1 = route1Coords.slice(Math.min(originCoord, transfer1Coord), Math.max(originCoord, transfer1Coord) + 1)
-                
-                // Segment 2: First Transfer → Second Transfer
-                const transfer1OnRoute2 = findClosestCoordinateIndex(route2Coords, intermediateStations[optimalTransfer1.intermediateRouteIdx].coords)
-                const transfer2OnRoute2 = findClosestCoordinateIndex(route2Coords, intermediateStations[optimalTransfer2.intermediateRouteIdx].coords)
-                const seg2 = route2Coords.slice(Math.min(transfer1OnRoute2, transfer2OnRoute2), Math.max(transfer1OnRoute2, transfer2OnRoute2) + 1)
-                
-                // Segment 3: Second Transfer → Destination
-                const transfer2OnRoute3 = findClosestCoordinateIndex(route3Coords, destRoute.stations[optimalTransfer2.destRouteIdx].coords)
-                const destOnRoute3 = findClosestCoordinateIndex(route3Coords, destRoute.stations[destRoute.index].coords)
-                const seg3 = route3Coords.slice(Math.min(transfer2OnRoute3, destOnRoute3), Math.max(transfer2OnRoute3, destOnRoute3) + 1)
-                
-                // Set all 3 segments
-                setFirstRouteSegment(seg1)
-                setSecondRouteSegment(seg2)
-                setThirdRouteSegment(seg3)
-                setFirstRoute(originRoute.routeId + 'D')
-                setSecondRoute(intermediateRouteId + 'D')
-                setThirdRoute(destRoute.routeId + 'D')
-                setTransferStation(optimalTransfer1.name)
-                setSecondTransferStation(optimalTransfer2.name)
-                setSelectedRoute(originRoute.routeId)
-                setOriginStationIndex(originRoute.index)
-                setDestinationStationIndex(destRoute.index)
-                setSegmentCoordinates(null)
-                
-                // Center map on middle segment
-                if (seg2.length > 0) {
-                  const midPoint = seg2[Math.floor(seg2.length / 2)]
-                  setMapCenter([midPoint[0], midPoint[1]])
-                }
-                
-                return // Exit early, we found the route
-              }
-            }
-          }
-        }
-      }
-
-      if (bestTransfer) {
-        const { originRouteId, destRouteId, originIdx, destIdx, transferStation, 
-                transferIdxOriginRoute, transferIdxDestRoute, originStations, destStations,
-                originDirection, destDirection } = bestTransfer
-        
-        if (transferStation) {
-          // Calculate first segment: origin to transfer station
-          let route1Coords = originRouteId === '1' ? ROUTE_1_COORDINATES : 
-                            originRouteId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
-          
-          const originStation = originStations[originIdx]
-          const transferStationObj = originStations[transferIdxOriginRoute]
-          
-          const originCoordIdx = findClosestCoordinateIndex(route1Coords, originStation.coords)
-          const transferCoordIdx1 = findClosestCoordinateIndex(route1Coords, transferStationObj.coords)
-          
-          const seg1Start = Math.min(originCoordIdx, transferCoordIdx1)
-          const seg1End = Math.max(originCoordIdx, transferCoordIdx1)
-          const segment1 = route1Coords.slice(seg1Start, seg1End + 1)
-
-          // Calculate second segment: transfer station to destination
-          let route2Coords = destRouteId === '1' ? ROUTE_1_COORDINATES : 
-                            destRouteId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
-          
-          const transferStationObj2 = destStations[transferIdxDestRoute]
-          const destStation = destStations[destIdx]
-          
-          const transferCoordIdx2 = findClosestCoordinateIndex(route2Coords, transferStationObj2.coords)
-          const destCoordIdx = findClosestCoordinateIndex(route2Coords, destStation.coords)
-          
-          const seg2Start = Math.min(transferCoordIdx2, destCoordIdx)
-          const seg2End = Math.max(transferCoordIdx2, destCoordIdx)
-          const segment2 = route2Coords.slice(seg2Start, seg2End + 1)
-
-          // Set transfer route state with direction info
-          setTransferStation(transferStation)
-          setFirstRouteSegment(segment1)
-          setSecondRouteSegment(segment2)
-          setFirstRoute(getRouteDisplayName(originRouteId, originDirection))
-          setSecondRoute(getRouteDisplayName(destRouteId, destDirection))
-          setOriginStationIndex(originIdx)
-          setDestinationStationIndex(destIdx)
-          setSegmentCoordinates(null) // Clear single segment
-          
-          // Calculate center point between both segments for map focus
-          if (segment1.length > 0 && segment2.length > 0) {
-            const midPoint1 = segment1[Math.floor(segment1.length / 2)]
-            const midPoint2 = segment2[Math.floor(segment2.length / 2)]
-            const centerLat = (midPoint1[0] + midPoint2[0]) / 2
-            const centerLon = (midPoint1[1] + midPoint2[1]) / 2
-            setMapCenter([centerLat, centerLon])
-          }
-          
-          // Set selectedRoute to show first route context
-          setSelectedRoute(originRouteId)
-          
-          return
-        }
+      const journeyData = await response.json()
+      
+      console.log('✅ Journey Path Received:', {
+        route: journeyData.route_id,
+        direction: journeyData.direction,
+        nodes: journeyData.total_nodes,
+        distance: journeyData.total_distance_km,
+        eta: journeyData.eta_minutes
+      })
+      
+      // Frontend: Simply use the path provided by backend
+      setSegmentCoordinates(journeyData.path)
+      setSelectedRoute(journeyData.route_id)
+      setRouteDirection(journeyData.direction.includes('↓') ? 'D' : 'U')
+      
+      // Clear transfer state (backend handles it)
+      setTransferStation(null)
+      setFirstRouteSegment(null)
+      setSecondRouteSegment(null)
+      setFirstRoute(null)
+      setSecondRoute(null)
+      
+      // Center map on journey
+      if (journeyData.path && journeyData.path.length > 0) {
+        const midIdx = Math.floor(journeyData.path.length / 2)
+        setMapCenter(journeyData.path[midIdx])
       }
       
-      alert(`No route found between ${originValue} and ${destinationValue}.\n\nPlease check station names or try different stations.`)
-      return
-    }
-
-    if (foundRoute) {
-      // Send origin and route_id to backend for ETA calculation
-      handleRouteSwitch(foundRoute, originValue)
+    } catch (error) {
+      console.error('❌ Route Calculation Error:', error)
+      alert(`Error finding route: ${error.message}`)
     }
   }
-  
+
   // Helper function to find closest coordinate index to a station
   const findClosestCoordinateIndex = (coordinates, stationCoords) => {
     let minDistance = Infinity
@@ -2359,28 +2098,7 @@ export default function App() {
             >
               Find Bus 🔍
             </button>
-              {/* Direction Toggle - Only show for Route 1 */}
-              {selectedRoute === '1' && origin && destination && (
-                <button
-                  onClick={() => {
-                    const newDirection = routeDirection === 'D' ? 'U' : 'D'
-                    setRouteDirection(newDirection)
-                  }}
-                  style={{
-                    padding: '8px 14px',
-                    background: routeDirection === 'D' ? 'rgba(0, 255, 153, 0.2)' : 'rgba(100, 150, 255, 0.2)',
-                    border: routeDirection === 'D' ? '1px solid rgba(0, 255, 153, 0.5)' : '1px solid rgba(100, 150, 255, 0.5)',
-                    borderRadius: '8px',
-                    color: routeDirection === 'D' ? '#00ff99' : '#64d4ff',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  {routeDirection === 'D' ? '↓ Forward' : '↑ Reverse'}
-                </button>
-              )}
+            
             {/* Clear Segment Filter Button - Only show when segment or transfer is active */}
             {(segmentCoordinates || transferStation) && (
               <button

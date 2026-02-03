@@ -16,7 +16,13 @@ from janmarg_data import (
     is_peak_hour,
     get_traffic_factor,
     get_occupancy_level,
-    get_headway
+    get_headway,
+    ROUTE_1_FULL_TRACE,
+    ROUTE_1_INDICES,
+    ROUTE_15_FULL_TRACE,
+    ROUTE_15_INDICES,
+    ROUTE_7_FULL_TRACE,
+    ROUTE_7_INDICES
 )
 from janmarg_config import (
     is_peak_hour as is_peak_hour_config,
@@ -317,6 +323,116 @@ def get_insight(
         )
     
     return response
+
+@app.post("/api/calculate-journey")
+def calculate_journey(request_data: dict):
+    """
+    Calculate exact journey path from origin to destination.
+    Backend handles all path slicing and reversal logic.
+    
+    Request:
+    {
+        "origin": "Anjali Cross Road",
+        "destination": "Shivranjani"
+    }
+    
+    Response:
+    {
+        "path": [[lat, lng], ...],           # Exact coordinate array for journey
+        "total_nodes": 15,                   # Number of coordinates
+        "total_distance_km": 5.2,
+        "eta_minutes": 12,
+        "route_id": "1",
+        "direction": "Onward (↓)",
+        "origin": "Anjali Cross Road",
+        "destination": "Shivranjani"
+    }
+    """
+    origin = request_data.get("origin")
+    destination = request_data.get("destination")
+    
+    if not origin or not destination:
+        raise HTTPException(status_code=400, detail="Missing origin or destination")
+    
+    # Define route mappings for quick lookup
+    routes_map = {
+        '1': {
+            'stops': ROUTE_1_STOPS,
+            'trace': ROUTE_1_FULL_TRACE,
+            'indices': ROUTE_1_INDICES
+        },
+        '15': {
+            'stops': ROUTE_15_STOPS,
+            'trace': ROUTE_15_FULL_TRACE,
+            'indices': ROUTE_15_INDICES
+        },
+        '7': {
+            'stops': ROUTE_7_STOPS,
+            'trace': ROUTE_7_FULL_TRACE,
+            'indices': ROUTE_7_INDICES
+        }
+    }
+    
+    # Find which route contains both stations
+    route_id = None
+    origin_idx = -1
+    dest_idx = -1
+    
+    for rid, route_data in routes_map.items():
+        stops = route_data['stops']
+        # Try exact match first
+        origin_idx = next((i for i, s in enumerate(stops) if s.lower() == origin.lower()), -1)
+        dest_idx = next((i for i, s in enumerate(stops) if s.lower() == destination.lower()), -1)
+        
+        if origin_idx != -1 and dest_idx != -1:
+            route_id = rid
+            break
+    
+    if route_id is None:
+        raise HTTPException(status_code=404, detail=f"No direct route between {origin} and {destination}")
+    
+    # Get route data
+    route = routes_map[route_id]
+    full_trace = route['trace']
+    indices = route['indices']
+    
+    # Get coordinate indices from the indices mapping
+    # If exact index not found, use approximate nearest
+    start_idx = indices.get(origin)
+    end_idx = indices.get(destination)
+    
+    if start_idx is None or end_idx is None:
+        # Fallback: try to use station order to estimate indices
+        start_idx = int(len(full_trace) * (origin_idx / len(route['stops'])))
+        end_idx = int(len(full_trace) * (dest_idx / len(route['stops'])))
+    
+    # Extract path segment (handle both directions automatically)
+    if start_idx < end_idx:
+        # Forward direction
+        path = full_trace[start_idx : end_idx + 1]
+        direction = "Onward (↓)"
+    else:
+        # Reverse direction - slice and reverse
+        path = full_trace[end_idx : start_idx + 1][::-1]
+        direction = "Return (↑)"
+    
+    # Calculate distance (rough estimate: ~0.3 km per 10 coordinates)
+    distance_km = (len(path) * 0.3) / 10
+    
+    # Calculate ETA (using commercial speed)
+    eta_minutes = int((distance_km / COMMERCIAL_SPEED_KMH) * 60)
+    
+    return {
+        "path": path,
+        "total_nodes": len(path),
+        "total_distance_km": round(distance_km, 2),
+        "eta_minutes": eta_minutes,
+        "route_id": route_id,
+        "direction": direction,
+        "origin": origin,
+        "destination": destination,
+        "timestamp": datetime.now().isoformat()
+    }
 
 if __name__ == "__main__":
     import uvicorn
