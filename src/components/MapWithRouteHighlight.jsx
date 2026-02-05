@@ -33,6 +33,8 @@ export default function MapWithRouteHighlight() {
   const [mapCenter, setMapCenter] = useState([23.03, 72.53])
   const [mapZoom, setMapZoom] = useState(13)
   const [routePath, setRoutePath] = useState([])
+  const [autoFollow, setAutoFollow] = useState(true)
+  const [autoFit, setAutoFit] = useState(true)
 
   // Calculate map center and route path from journey
   useEffect(() => {
@@ -46,6 +48,8 @@ export default function MapWithRouteHighlight() {
       setMapCenter(newCenter)
       setMapZoom(14)
       setRoutePath(journey.path)
+      setAutoFit(true)
+      setAutoFollow(true)
     }
   }, [journey])
 
@@ -57,17 +61,32 @@ export default function MapWithRouteHighlight() {
     const map = useMap()
 
     useEffect(() => {
-      if (routePath && routePath.length > 1) {
+      if (autoFit && routePath && routePath.length > 1) {
         const bounds = L.latLngBounds(routePath)
         map.fitBounds(bounds, { padding: [30, 30] })
       }
-    }, [routePath, map])
+    }, [routePath, map, autoFit])
 
     useEffect(() => {
-      if (currentBusLocation) {
+      if (currentBusLocation && autoFollow) {
         map.panTo(currentBusLocation, { animate: true, duration: 0.5 })
       }
-    }, [currentBusLocation, map])
+    }, [currentBusLocation, map, autoFollow])
+
+    useEffect(() => {
+      const handleUserMove = () => {
+        setAutoFollow(false)
+        setAutoFit(false)
+      }
+      map.on('dragstart', handleUserMove)
+      map.on('zoomstart', handleUserMove)
+      map.on('movestart', handleUserMove)
+      return () => {
+        map.off('dragstart', handleUserMove)
+        map.off('zoomstart', handleUserMove)
+        map.off('movestart', handleUserMove)
+      }
+    }, [map])
 
     return null
   }

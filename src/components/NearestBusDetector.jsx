@@ -77,12 +77,14 @@ export default function NearestBusDetector({ userLocation }) {
 
           <div className="info-row">
             <span className="label">Occupancy</span>
-            <div className="occupancy-bar">
-              <div
-                className="occupancy-fill"
-                style={{ width: `${nearestBus.occupancy_percent}%` }}
-              />
-              <span className="occupancy-text">{nearestBus.occupancy_percent}%</span>
+            <div className="occupancy-wrap">
+              <div className="occupancy-bar">
+                <div
+                  className="occupancy-fill"
+                  style={{ width: `${nearestBus.occupancy_percent}%` }}
+                />
+                <span className="occupancy-text">{nearestBus.occupancy_percent}%</span>
+              </div>
             </div>
           </div>
 

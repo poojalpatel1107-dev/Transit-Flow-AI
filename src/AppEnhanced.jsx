@@ -23,6 +23,8 @@ export default function AppEnhanced() {
   const [userLocation, setUserLocation] = useState([23.027159, 72.508525]) // Default: ISKCON area
   const [isLoadingRoute, setIsLoadingRoute] = useState(false)
   const [rightTab, setRightTab] = useState('nearest')
+  const [currentTime, setCurrentTime] = useState('')
+  const [isBusServiceActive, setIsBusServiceActive] = useState(true)
 
   // Get store state
   const journey = useJourneyStore(state => state.journey)
@@ -52,6 +54,20 @@ export default function AppEnhanced() {
         (error) => console.log('Geolocation error:', error)
       )
     }
+  }, [])
+
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date()
+      setCurrentTime(
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      )
+      const hour = now.getHours()
+      setIsBusServiceActive(hour >= 6 && hour < 23)
+    }
+    updateTime()
+    const intervalId = setInterval(updateTime, 1000)
+    return () => clearInterval(intervalId)
   }, [])
 
   // Handle route search
@@ -220,12 +236,23 @@ export default function AppEnhanced() {
           <h1 className="app-title">🚌 Transit Flow AI</h1>
           <p className="app-subtitle">Smart Transit with Real-time Tracking</p>
         </div>
+        <div className="header-clock" aria-live="polite">
+          <span className="clock-dot" aria-hidden="true"></span>
+          <span className="clock-time">{currentTime}</span>
+        </div>
       </div>
 
       <div className="app-container">
         {/* Search Bar */}
         <div className="search-section">
-          <SearchBar onRouteSelect={handleRouteSelect} />
+          <div className="search-stack">
+            <SearchBar onRouteSelect={handleRouteSelect} />
+            {!isBusServiceActive && (
+              <div className="service-message" role="status" aria-live="polite">
+                Buses operate daily from 06:00 to 23:00. Service is currently unavailable.
+              </div>
+            )}
+          </div>
           {isLoadingRoute && <div className="loading-spinner">Finding route...</div>}
         </div>
 

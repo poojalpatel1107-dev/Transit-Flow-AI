@@ -8,7 +8,7 @@
 
 .search-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 16px;
   padding: 16px 20px;
   border-radius: 16px;
@@ -16,6 +16,7 @@
   background: rgba(15, 23, 42, 0.85);
   backdrop-filter: blur(16px);
   border: 1px solid var(--border);
+  --control-height: 42px;
 }
 
 .search-icon {
@@ -24,6 +25,8 @@
   justify-content: center;
   flex-shrink: 0;
   color: var(--accent);
+  align-self: flex-end;
+  margin-bottom: 4px;
 }
 
 .search-inputs {
@@ -49,7 +52,8 @@
 }
 
 .dropdown {
-  padding: 10px 12px;
+  height: var(--control-height);
+  padding: 0 12px;
   background-color: rgba(2, 6, 23, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 10px;
@@ -78,7 +82,8 @@
 }
 
 .search-button {
-  padding: 10px 24px;
+  height: var(--control-height);
+  padding: 0 24px;
   background: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%);
   border: none;
   border-radius: 10px;

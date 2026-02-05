@@ -17,11 +17,14 @@
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .logo-section {
   max-width: 1400px;
-  margin: 0 auto;
 }
 
 .app-title {
@@ -36,6 +39,47 @@
   font-size: 12px;
   opacity: 0.8;
   color: var(--muted);
+}
+
+.header-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #fecaca;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  box-shadow: 0 10px 24px rgba(239, 68, 68, 0.2);
+}
+
+.clock-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.25), 0 0 12px rgba(239, 68, 68, 0.6);
+  position: relative;
+}
+
+.clock-dot::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px dashed rgba(239, 68, 68, 0.45);
+  animation: pulse-ring 1.6s ease-in-out infinite;
+}
+
+.clock-time {
+  font-size: 13px;
+}
+
+@keyframes pulse-ring {
+  0%, 100% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.1); opacity: 0.3; }
 }
 
 .app-container {
@@ -59,17 +103,43 @@
   margin-bottom: 2px;
 }
 
+.search-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.service-message {
+  width: min(900px, 100%);
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.35);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  box-shadow: 0 8px 18px rgba(239, 68, 68, 0.12);
+}
+
 .loading-spinner {
   position: relative;
   margin: 12px auto 0;
   background: rgba(15, 23, 42, 0.9);
-  padding: 10px 16px;
-  border-radius: 999px;
+  padding: 10px 18px;
+  border-radius: 16px;
   font-weight: 600;
   color: var(--accent);
   border: 1px solid var(--border);
   animation: pulse 1.5s infinite;
   width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 40px;
 }
 
 @keyframes pulse {
@@ -275,6 +345,7 @@
 
   .app-header {
     padding: 16px;
+    flex-wrap: wrap;
   }
 
   .app-title {
