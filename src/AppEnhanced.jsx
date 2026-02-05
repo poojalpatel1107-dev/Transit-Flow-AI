@@ -8,6 +8,16 @@ import NearestBusDetector from './components/NearestBusDetector'
 import AIRecommendations from './components/AIRecommendations'
 import JanmargChat from './components/JanmargChat'
 import useJourneyStore from './store/useJourneyStore'
+import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS } from './RouteCoordinates'
+
+const STATION_COORDS_MAP = new Map(
+  [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS].map(station => [
+    station.name,
+    station.coords
+  ])
+)
+
+const getStationCoords = (name) => STATION_COORDS_MAP.get(name)
 
 export default function AppEnhanced() {
   const [userLocation, setUserLocation] = useState([23.027159, 72.508525]) // Default: ISKCON area
@@ -121,6 +131,7 @@ export default function AppEnhanced() {
               if (!next) return null
               return {
                 station: seg.to_station,
+                location: getStationCoords(seg.to_station) || null,
                 from_route: seg.route_id,
                 to_route: next.route_id,
                 wait_minutes: 5
@@ -128,26 +139,44 @@ export default function AppEnhanced() {
             })
             .filter(Boolean)
 
-          const filtered = fromSegments.filter(t =>
-            t.station && t.station !== data.origin && t.station !== data.destination
-          )
+          const normalizeName = (value) => (value || '').trim().toLowerCase()
+          const originName = normalizeName(data.origin)
+          const destinationName = normalizeName(data.destination)
+          const filtered = fromSegments.filter(t => {
+            const stationName = normalizeName(t.station)
+            return stationName && stationName !== originName && stationName !== destinationName
+          })
 
           // Fallback to backend fields if segments not available
           if (filtered.length > 0) {
             transfers.push(...filtered)
           } else {
             const transfer1 = data.transfer_station_1 || data.transfer_station
-            if (transfer1 && data.route_1 && data.route_2 && transfer1 !== data.origin) {
+            if (
+              transfer1 &&
+              data.route_1 &&
+              data.route_2 &&
+              normalizeName(transfer1) !== originName &&
+              normalizeName(transfer1) !== destinationName
+            ) {
               transfers.push({
                 station: transfer1,
+                location: getStationCoords(transfer1) || null,
                 from_route: data.route_1,
                 to_route: data.route_2,
                 wait_minutes: 5
               })
             }
-            if (data.transfer_station_2 && data.route_2 && data.route_3) {
+            if (
+              data.transfer_station_2 &&
+              data.route_2 &&
+              data.route_3 &&
+              normalizeName(data.transfer_station_2) !== originName &&
+              normalizeName(data.transfer_station_2) !== destinationName
+            ) {
               transfers.push({
                 station: data.transfer_station_2,
+                location: getStationCoords(data.transfer_station_2) || null,
                 from_route: data.route_2,
                 to_route: data.route_3,
                 wait_minutes: 5
@@ -259,6 +288,7 @@ export default function AppEnhanced() {
                 <AIRecommendations
                   origin={originStation}
                   destination={destinationStation}
+                  journey={journey}
                 />
               )}
 

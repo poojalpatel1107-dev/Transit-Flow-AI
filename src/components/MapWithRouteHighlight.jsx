@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import useJourneyStore from '../store/useJourneyStore'
+import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS } from '../RouteCoordinates'
 import './MapWithRouteHighlight.css'
 
 // Custom marker icons
@@ -17,6 +18,15 @@ const startIcon = createMarkerIcon('#4CAF50', '📍')
 const endIcon = createMarkerIcon('#FF6B6B', '🎯')
 const transferIcon = createMarkerIcon('#FFC107', '🔄')
 const busIcon = createMarkerIcon('#2196F3', '🚌')
+
+const STATION_COORDS_MAP = new Map(
+  [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS].map(station => [
+    station.name,
+    station.coords
+  ])
+)
+
+const getStationCoords = (name) => STATION_COORDS_MAP.get(name)
 
 export default function MapWithRouteHighlight() {
   const { journey, currentBusLocation, transferStations } = useJourneyStore()
@@ -113,7 +123,7 @@ export default function MapWithRouteHighlight() {
         {hasRoute && transferStations && transferStations.map((transfer, idx) => (
           <Marker
             key={idx}
-            position={transfer.location || [
+            position={transfer.location || getStationCoords(transfer.station) || [
               23.027159 + idx * 0.005,
               72.508525 + idx * 0.01
             ]}

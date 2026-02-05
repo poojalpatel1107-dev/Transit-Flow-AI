@@ -217,7 +217,7 @@
 .tracking-panel {
   min-height: 0;
   border-radius: 16px;
-  overflow: hidden;
+  overflow: auto;
   background: rgba(2, 6, 23, 0.6);
   backdrop-filter: blur(14px);
   border: 1px solid var(--border);

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import './AIRecommendations.css'
 
-export default function AIRecommendations({ origin, destination }) {
+export default function AIRecommendations({ origin, destination, journey }) {
   const [recommendations, setRecommendations] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -16,7 +16,7 @@ export default function AIRecommendations({ origin, destination }) {
         const response = await fetch('http://localhost:8000/api/smart-recommendations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ origin, destination })
+          body: JSON.stringify({ origin, destination, journey })
         })
         const data = await response.json()
         setRecommendations(data)
@@ -29,7 +29,7 @@ export default function AIRecommendations({ origin, destination }) {
     }
 
     fetchRecommendations()
-  }, [origin, destination])
+  }, [origin, destination, journey])
 
   const getPriorityClass = (priority) => {
     switch (priority) {

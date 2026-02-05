@@ -679,33 +679,53 @@ def _find_transfer_route(origin, destination, routes_map):
             common_stations = [s for s in origin_stops if s in dest_stops and s != origin and s != destination]
             
             if common_stations:
-                # Use first common station as transfer point
-                transfer_station = common_stations[0]
-                transfer_idx_origin = origin_stops.index(transfer_station)
-                transfer_idx_dest = dest_stops.index(transfer_station)
-                
-                # Calculate first segment
-                segment1 = _segment_info(
-                    origin_route['route_id'],
-                    origin_route['index'],
-                    transfer_idx_origin,
-                    routes_map
-                )
+                best = None
+                for transfer_station in common_stations:
+                    transfer_idx_origin = origin_stops.index(transfer_station)
+                    transfer_idx_dest = dest_stops.index(transfer_station)
 
-                # Calculate second segment
-                segment2 = _segment_info(
-                    dest_route['route_id'],
-                    transfer_idx_dest,
-                    dest_route['index'],
-                    routes_map
-                )
+                    # Calculate first segment
+                    segment1 = _segment_info(
+                        origin_route['route_id'],
+                        origin_route['index'],
+                        transfer_idx_origin,
+                        routes_map
+                    )
 
-                if segment1 and segment2:
+                    # Calculate second segment
+                    segment2 = _segment_info(
+                        dest_route['route_id'],
+                        transfer_idx_dest,
+                        dest_route['index'],
+                        routes_map
+                    )
+
+                    if not (segment1 and segment2):
+                        continue
+
+                    distance_km = segment1["distance_km"] + segment2["distance_km"]
+                    eta_minutes = segment1["eta_minutes"] + segment2["eta_minutes"] + 3  # +3min for transfer
+                    score = (eta_minutes, distance_km)
+
+                    if best is None or score < best["score"]:
+                        best = {
+                            "transfer_station": transfer_station,
+                            "segment1": segment1,
+                            "segment2": segment2,
+                            "distance_km": distance_km,
+                            "eta_minutes": eta_minutes,
+                            "score": score
+                        }
+
+                if best:
+                    segment1 = best["segment1"]
+                    segment2 = best["segment2"]
+                    transfer_station = best["transfer_station"]
                     # Concatenate paths
                     full_path = segment1["path"][:-1] + segment2["path"]  # Remove duplicate transfer station
-                    distance_km = round(segment1["distance_km"] + segment2["distance_km"], 2)
-                    eta_minutes = segment1["eta_minutes"] + segment2["eta_minutes"] + 3  # +3min for transfer
-                    
+                    distance_km = round(best["distance_km"], 2)
+                    eta_minutes = best["eta_minutes"]
+
                     return {
                         "path": full_path,
                         "total_nodes": len(full_path),
@@ -748,16 +768,11 @@ def _find_transfer_route(origin, destination, routes_map):
                 
             mid_stops = mid_route_data['stops']
             
-            # Find common station between origin_route and mid_route
+            # Find common stations between origin_route and mid_route
             common_1 = [s for s in origin_stops if s in mid_stops and s != origin and s != destination]
-            
             if not common_1:
                 continue
-            
-            transfer_1 = common_1[0]
-            transfer_1_idx_origin = origin_stops.index(transfer_1)
-            transfer_1_idx_mid = mid_stops.index(transfer_1)
-            
+
             # Now try to reach destination through another route
             for dest_route in routes_with_dest:
                 if dest_route['route_id'] in [origin_route['route_id'], mid_route_id]:
@@ -765,43 +780,71 @@ def _find_transfer_route(origin, destination, routes_map):
                 
                 dest_stops = routes_map[dest_route['route_id']]['stops']
                 
-                # Find common station between mid_route and dest_route
+                # Find common stations between mid_route and dest_route
                 common_2 = [s for s in mid_stops if s in dest_stops and s != origin and s != destination]
-                
                 if not common_2:
                     continue
-                
-                transfer_2 = common_2[0]
-                transfer_2_idx_mid = mid_stops.index(transfer_2)
-                transfer_2_idx_dest = dest_stops.index(transfer_2)
-                
-                # Calculate all three segments
-                segment1 = _segment_info(
-                    origin_route['route_id'],
-                    origin_route['index'],
-                    transfer_1_idx_origin,
-                    routes_map
-                )
-                
-                segment2 = _segment_info(
-                    mid_route_id,
-                    transfer_1_idx_mid,
-                    transfer_2_idx_mid,
-                    routes_map
-                )
-                
-                segment3 = _segment_info(
-                    dest_route['route_id'],
-                    transfer_2_idx_dest,
-                    dest_route['index'],
-                    routes_map
-                )
-                
-                if segment1 and segment2 and segment3:
+
+                best = None
+                for transfer_1 in common_1:
+                    transfer_1_idx_origin = origin_stops.index(transfer_1)
+                    transfer_1_idx_mid = mid_stops.index(transfer_1)
+
+                    for transfer_2 in common_2:
+                        transfer_2_idx_mid = mid_stops.index(transfer_2)
+                        transfer_2_idx_dest = dest_stops.index(transfer_2)
+
+                        segment1 = _segment_info(
+                            origin_route['route_id'],
+                            origin_route['index'],
+                            transfer_1_idx_origin,
+                            routes_map
+                        )
+
+                        segment2 = _segment_info(
+                            mid_route_id,
+                            transfer_1_idx_mid,
+                            transfer_2_idx_mid,
+                            routes_map
+                        )
+
+                        segment3 = _segment_info(
+                            dest_route['route_id'],
+                            transfer_2_idx_dest,
+                            dest_route['index'],
+                            routes_map
+                        )
+
+                        if not (segment1 and segment2 and segment3):
+                            continue
+
+                        distance_km = segment1["distance_km"] + segment2["distance_km"] + segment3["distance_km"]
+                        eta_minutes = segment1["eta_minutes"] + segment2["eta_minutes"] + segment3["eta_minutes"] + 6
+                        score = (eta_minutes, distance_km)
+
+                        if best is None or score < best["score"]:
+                            best = {
+                                "transfer_1": transfer_1,
+                                "transfer_2": transfer_2,
+                                "segment1": segment1,
+                                "segment2": segment2,
+                                "segment3": segment3,
+                                "distance_km": distance_km,
+                                "eta_minutes": eta_minutes,
+                                "score": score
+                            }
+
+                if best:
+                    segment1 = best["segment1"]
+                    segment2 = best["segment2"]
+                    segment3 = best["segment3"]
+                    transfer_1 = best["transfer_1"]
+                    transfer_2 = best["transfer_2"]
+
                     # Concatenate all three paths, removing duplicate transfer stations
                     full_path = segment1["path"][:-1] + segment2["path"][:-1] + segment3["path"]
-                    distance_km = round(segment1["distance_km"] + segment2["distance_km"] + segment3["distance_km"], 2)
-                    eta_minutes = segment1["eta_minutes"] + segment2["eta_minutes"] + segment3["eta_minutes"] + 6  # +6min for two transfers
+                    distance_km = round(best["distance_km"], 2)
+                    eta_minutes = best["eta_minutes"]
                     
                     return {
                         "path": full_path,

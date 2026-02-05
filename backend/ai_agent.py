@@ -415,6 +415,23 @@ class TransitAIAgent:
             ]
         """
         current_hour = datetime.now().hour
+
+        # Prefer actual journey transfer stations when available
+        transfer_station_1 = None
+        transfer_station_2 = None
+        if isinstance(journey_data, dict) and journey_data.get("transfer"):
+            transfer_station_1 = journey_data.get("transfer_station_1") or journey_data.get("transfer_station")
+            transfer_station_2 = journey_data.get("transfer_station_2")
+
+        if transfer_station_1 and transfer_station_2:
+            transfer_description = f"Use {transfer_station_1} then {transfer_station_2} for transfers"
+            transfer_action = "Wait ~5-8 min at each transfer point"
+        elif transfer_station_1:
+            transfer_description = f"Use {transfer_station_1} for transfer (covered platform, WiFi)"
+            transfer_action = "Wait ~5-8 min, use waiting area"
+        else:
+            transfer_description = "Use ISKCON Cross Road for transfer (covered platform, WiFi)"
+            transfer_action = "Wait ~5-8 min, use waiting area"
         
         recommendations = [
             {
@@ -428,8 +445,8 @@ class TransitAIAgent:
             {
                 "priority": "MEDIUM",
                 "title": "🔄 SMART TRANSFER",
-                "description": "Use ISKCON Cross Road for transfer (covered platform, WiFi)",
-                "action": f"Wait ~5-8 min, use waiting area",
+                "description": transfer_description,
+                "action": transfer_action,
                 "icon": "🏢"
             },
             {
