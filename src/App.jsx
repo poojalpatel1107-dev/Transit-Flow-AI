@@ -5,7 +5,7 @@ import { X, Bus, HelpCircle, Cloud, Activity, MessageCircle } from 'lucide-react
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
-import { REAL_ROUTE_1, ROUTE_1U_COORDINATES, STATIONS, ROUTE_15_COORDINATES, ROUTE_15_STATIONS, ROUTE_7_COORDINATES, ROUTE_7_STATIONS, getStationAnalytics } from './RouteCoordinates'
+import { REAL_ROUTE_1, ROUTE_1U_COORDINATES, STATIONS, ROUTE_15_COORDINATES, ROUTE_15_STATIONS, ROUTE_7_COORDINATES, ROUTE_7_STATIONS, ROUTE_4_COORDINATES, ROUTE_4_STATIONS, getStationAnalytics } from './RouteCoordinates'
 import { fetchRouteAnalytics, fetchRouteInsight } from './services/AIAgent'
 
 // 🎯 HAVERSINE FORMULA: Calculate distance between two GPS coordinates
@@ -57,14 +57,16 @@ const STOPS_COORDS = {
 const ROUTE_MAP = {
   '1': STATIONS,
   '15': ROUTE_15_STATIONS,
-  '7': ROUTE_7_STATIONS
+  '7': ROUTE_7_STATIONS,
+  '4': ROUTE_4_STATIONS
 }
 
 const UNIQUE_STATIONS = [
   ...new Set([
     ...STATIONS,
     ...ROUTE_15_STATIONS,
-    ...ROUTE_7_STATIONS
+    ...ROUTE_7_STATIONS,
+    ...ROUTE_4_STATIONS
   ].map(s => s.name))
 ].sort()
 
@@ -189,6 +191,15 @@ const busData = {
     route: ROUTE_7_COORDINATES,
     load: 50,
     baseTime: 18
+  },
+  '4': {
+    name: 'Route 4 - L.D. College to Memnagar',
+    crowded: false,
+    color: '#ff9900',
+    fare: calculateFare(0, 3),
+    route: ROUTE_4_COORDINATES,
+    load: 55,
+    baseTime: 22
   }
 }
 
@@ -348,6 +359,8 @@ export default function App() {
   const [bus15aProgress, setBus15aProgress] = useState(0.5) // Parallel bus on Route 15
   const [bus7Progress, setBus7Progress] = useState(0) // Route 7 bus
   const [bus7aProgress, setBus7aProgress] = useState(0.45) // Parallel bus on Route 7
+  const [bus4Progress, setBus4Progress] = useState(0) // Route 4 bus
+  const [bus4aProgress, setBus4aProgress] = useState(0.5) // Parallel bus on Route 4
   const [bus1Bearing, setBus1Bearing] = useState(0)
   const [bus1aBearing, setBus1aBearing] = useState(0)
   const [bus1bBearing, setBus1bBearing] = useState(0)
@@ -356,6 +369,8 @@ export default function App() {
   const [bus15aBearing, setBus15aBearing] = useState(0)
   const [bus7Bearing, setBus7Bearing] = useState(0)
   const [bus7aBearing, setBus7aBearing] = useState(0)
+  const [bus4Bearing, setBus4Bearing] = useState(0)
+  const [bus4aBearing, setBus4aBearing] = useState(0)
   // Station selection + AI analytics state
   const [selectedStation, setSelectedStation] = useState(null)
   const [stationAnalytics, setStationAnalytics] = useState(null)
@@ -616,6 +631,11 @@ export default function App() {
           setBus7Bearing(bearing)
           setBus7aProgress((overallProgress + 0.45) % 1)
           setBus7aBearing(bearing)
+        } else if (selectedRoute === '4') {
+          setBus4Progress(overallProgress)
+          setBus4Bearing(bearing)
+          setBus4aProgress((overallProgress + 0.5) % 1)
+          setBus4aBearing(bearing)
         }
       }
 
@@ -750,7 +770,7 @@ export default function App() {
     
     // Route info
     if (q.includes('route') || q.includes('which bus')) {
-      return `🚌 Available Routes:\n• Route 1D: Shivranjani ↔ ISKCON (6 stops)\n• Route 15D: ISKCON ↔ Airport (14 stops)\n• Route 7D: Ranip ↔ Vishwakarma (7 stops)\nSelect origin & destination to find your route!`
+      return `🚌 Available Routes:\n• Route 1D: Shivranjani ↔ ISKCON (6 stops)\n• Route 15D: ISKCON ↔ Airport (14 stops)\n• Route 7D: Ranip ↔ Vishwakarma (7 stops)\n• Route 4D: L.D. College ↔ Memnagar (7 stops)\nSelect origin & destination to find your route!`
     }
     
     // Default response
@@ -884,7 +904,7 @@ export default function App() {
         foundRoute = routeId
         const direction = getRouteDirection(stations, fromLocation, toLocation)
         
-        let routeCoords = routeId === '1' ? ROUTE_1_COORDINATES : routeId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+        let routeCoords = routeId === '1' ? ROUTE_1_COORDINATES : routeId === '15' ? ROUTE_15_COORDINATES : routeId === '7' ? ROUTE_7_COORDINATES : ROUTE_4_COORDINATES
         const originStation = stations[originIdx]
         const destStation = stations[destIdx]
         const originCoordIdx = findClosestCoordinateIndex(routeCoords, originStation.coords)
@@ -1014,9 +1034,11 @@ export default function App() {
       
       // Calculate bus starting position based on origin station
       let routeCoords = routeId === '1' ? ROUTE_1_COORDINATES : 
-                       routeId === '15' ? ROUTE_15_COORDINATES : ROUTE_7_COORDINATES
+                       routeId === '15' ? ROUTE_15_COORDINATES : 
+                       routeId === '7' ? ROUTE_7_COORDINATES : ROUTE_4_COORDINATES
       let stations = routeId === '1' ? STATIONS : 
-                     routeId === '15' ? ROUTE_15_STATIONS : ROUTE_7_STATIONS
+                     routeId === '15' ? ROUTE_15_STATIONS : 
+                     routeId === '7' ? ROUTE_7_STATIONS : ROUTE_4_STATIONS
       
       const originStationObj = stations.find(s => s.name === originStation)
       if (originStationObj && routeCoords.length > 0) {
@@ -1028,6 +1050,8 @@ export default function App() {
           setBus1Progress(initialProgress)
         } else if (routeId === '15') {
           setBus15Progress(initialProgress)
+        } else if (routeId === '4') {
+          setBus4Progress(initialProgress)
         }
       } else {
         // No origin specified, start from beginning
@@ -1100,7 +1124,11 @@ export default function App() {
         ? ROUTE_1_COORDINATES[3]
         : selectedRoute === '15'
           ? ROUTE_15_COORDINATES[3]
-          : [23.085, 72.590]
+          : selectedRoute === '7'
+            ? ROUTE_7_COORDINATES[3]
+            : selectedRoute === '4'
+              ? ROUTE_4_COORDINATES[3]
+              : [23.085, 72.590]
     )
   }, [selectedRoute])
 
@@ -1119,7 +1147,7 @@ export default function App() {
   const currentStations = ROUTE_MAP[selectedRoute] || STATIONS
   const startNode = currentStations[0]?.name || 'Start'
   const endNode = currentStations[currentStations.length - 1]?.name || 'End'
-  const activeProgress = selectedRoute === '1' ? bus1Progress : bus15Progress
+  const activeProgress = selectedRoute === '1' ? bus1Progress : selectedRoute === '15' ? bus15Progress : selectedRoute === '7' ? bus7Progress : bus4Progress
   
   // Dynamic ETA calculation based on bus position and proximity to origin
   const originStation = currentStations.find(s => s.name === origin)
@@ -1136,6 +1164,8 @@ export default function App() {
     activePath = ROUTE_15_COORDINATES
   } else if (selectedRoute === '7') {
     activePath = ROUTE_7_COORDINATES
+  } else if (selectedRoute === '4') {
+    activePath = ROUTE_4_COORDINATES
   }
   if (segmentCoordinates && segmentCoordinates.length > 0) {
     activePath = segmentCoordinates
@@ -1632,6 +1662,22 @@ export default function App() {
                 />
               </>
             )}
+
+            {/* 🎓 ROUTE 4: L.D. COLLEGE -> MEMNAGAR (Orange Line) */}
+            {selectedRoute === '4' && (
+              <>
+                <Polyline
+                  positions={segmentCoordinates || ROUTE_4_COORDINATES}
+                  pathOptions={{
+                    color: '#ff9900',
+                    weight: 6,
+                    opacity: 0.85,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }}
+                />
+              </>
+            )}
           </>
         )}
 
@@ -1938,6 +1984,22 @@ export default function App() {
             <Marker
               position={getPositionAlongRoute(ROUTE_7_COORDINATES, bus7aProgress).position}
               icon={createBusIcon('#cc00ff', bus7aBearing)}
+            />
+          </>
+        )}
+
+        {/* Route 4 - Multiple Parallel Buses */}
+        {selectedRoute === '4' && (
+          <>
+            {/* Primary Bus */}
+            <Marker
+              position={getPositionAlongRoute(ROUTE_4_COORDINATES, bus4Progress).position}
+              icon={createBusIcon('#ff9900', bus4Bearing)}
+            />
+            {/* Parallel Bus A */}
+            <Marker
+              position={getPositionAlongRoute(ROUTE_4_COORDINATES, bus4aProgress).position}
+              icon={createBusIcon('#ff9900', bus4aBearing)}
             />
           </>
         )}
