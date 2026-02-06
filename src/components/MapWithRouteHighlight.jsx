@@ -28,6 +28,128 @@ const STATION_COORDS_MAP = new Map(
 
 const getStationCoords = (name) => STATION_COORDS_MAP.get(name)
 
+// Snap a point to the closest vertex on the active route path.
+// Helps keep markers on the correct side when the geometry has u‑turns.
+const snapToPath = (point, path, { preferStart = false, preferEnd = false } = {}) => {
+  if (!point || !Array.isArray(path) || path.length === 0) return point
+
+  let closest = path[0]
+  let bestScore = Number.MAX_VALUE
+
+  const sq = (a, b) => {
+    const dLat = a[0] - b[0]
+    const dLng = a[1] - b[1]
+    return dLat * dLat + dLng * dLng
+  }
+
+  path.forEach((coord, idx) => {
+    const dist = sq(point, coord)
+    // Small directional bias: favor earlier points for start-side stops, later for end-side
+    const bias =
+      preferStart ? idx * 1e-8 :
+      preferEnd ? (path.length - idx) * 1e-8 :
+      0
+    const score = dist + bias
+    if (score < bestScore) {
+      bestScore = score
+      closest = coord
+    }
+  })
+
+  return closest
+}
+
+const metersBetween = (a, b) => {
+  const r = 6371000
+  const toRad = (v) => (v * Math.PI) / 180
+  const dLat = toRad(b[0] - a[0])
+  const dLng = toRad(b[1] - a[1])
+  const lat1 = toRad(a[0])
+  const lat2 = toRad(b[0])
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  return 2 * r * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
+// Remove short backtracking loops so center-platform stations do not appear as U-turns.
+const stripSmallLoops = (path) => {
+  if (!Array.isArray(path) || path.length < 3) return path || []
+
+  const loopThresholdMeters = 140
+  const detourFactor = 2.2
+  let working = path.slice()
+
+  const pass = (input) => {
+    const cleaned = [input[0]]
+    for (let i = 1; i < input.length - 1; i += 1) {
+      const prev = cleaned[cleaned.length - 1]
+      const curr = input[i]
+      const next = input[i + 1]
+
+      const prevNext = metersBetween(prev, next)
+      const prevCurr = metersBetween(prev, curr)
+      const currNext = metersBetween(curr, next)
+
+      const detour = prevCurr + currNext
+      const isTightLoop = prevNext < loopThresholdMeters && detour > prevNext * detourFactor
+      if (isTightLoop) {
+        continue
+      }
+
+      cleaned.push(curr)
+    }
+    cleaned.push(input[input.length - 1])
+    return cleaned
+  }
+
+  for (let i = 0; i < 3; i += 1) {
+    const next = pass(working)
+    if (next.length === working.length) {
+      break
+    }
+    working = next
+  }
+
+  return working
+}
+
+const trimPathToStations = (path, originName, destinationName) => {
+  if (!Array.isArray(path) || path.length < 2) return path || []
+
+  let trimmed = path.slice()
+  const radiusMeters = 90
+  const originCoord = originName ? getStationCoords(originName) : null
+  const destinationCoord = destinationName ? getStationCoords(destinationName) : null
+
+  if (originCoord) {
+    let lastNearOrigin = -1
+    trimmed.forEach((coord, idx) => {
+      if (metersBetween(coord, originCoord) <= radiusMeters) {
+        lastNearOrigin = idx
+      }
+    })
+    if (lastNearOrigin > 0 && lastNearOrigin < trimmed.length - 1) {
+      trimmed = trimmed.slice(lastNearOrigin)
+    }
+  }
+
+  if (destinationCoord && trimmed.length > 2) {
+    let firstNearDest = -1
+    for (let i = 0; i < trimmed.length; i += 1) {
+      if (metersBetween(trimmed[i], destinationCoord) <= radiusMeters) {
+        firstNearDest = i
+        break
+      }
+    }
+    if (firstNearDest > 0 && firstNearDest < trimmed.length - 1) {
+      trimmed = trimmed.slice(0, firstNearDest + 1)
+    }
+  }
+
+  return trimmed
+}
+
 export default function MapWithRouteHighlight() {
   const { journey, currentBusLocation, transferStations } = useJourneyStore()
   const [mapCenter, setMapCenter] = useState([23.03, 72.53])
@@ -39,6 +161,12 @@ export default function MapWithRouteHighlight() {
   // Calculate map center and route path from journey
   useEffect(() => {
     if (journey && journey.path && journey.path.length > 0) {
+      const cleanedPath = stripSmallLoops(journey.path)
+      const trimmedPath = trimPathToStations(
+        cleanedPath,
+        journey.origin,
+        journey.destination
+      )
       const latSum = journey.path.reduce((sum, coord) => sum + coord[0], 0)
       const lngSum = journey.path.reduce((sum, coord) => sum + coord[1], 0)
       const newCenter = [
@@ -47,15 +175,16 @@ export default function MapWithRouteHighlight() {
       ]
       setMapCenter(newCenter)
       setMapZoom(14)
-      setRoutePath(journey.path)
+      setRoutePath(trimmedPath)
       setAutoFit(true)
       setAutoFollow(true)
     }
   }, [journey])
 
   const hasRoute = Boolean(journey && journey.path && journey.path.length > 0)
-  const startPoint = routePath[0] || (journey?.path ? journey.path[0] : null)
-  const endPoint = routePath[routePath.length - 1] || (journey?.path ? journey.path[journey.path.length - 1] : null)
+  const pathForSnapping = routePath && routePath.length > 0 ? routePath : journey?.path || []
+  const startPoint = pathForSnapping[0] || (journey?.path ? journey.path[0] : null)
+  const endPoint = pathForSnapping[pathForSnapping.length - 1] || (journey?.path ? journey.path[journey.path.length - 1] : null)
 
   const MapViewUpdater = () => {
     const map = useMap()
@@ -139,26 +268,35 @@ export default function MapWithRouteHighlight() {
         ) : null}
 
         {/* Transfer stations */}
-        {hasRoute && transferStations && transferStations.map((transfer, idx) => (
-          <Marker
-            key={idx}
-            position={transfer.location || getStationCoords(transfer.station) || [
-              23.027159 + idx * 0.005,
-              72.508525 + idx * 0.01
-            ]}
-            icon={transferIcon}
-          >
-            <Popup>
-              <div className="popup-content">
-                <strong>🔄 Transfer #{idx + 1}</strong><br />
-                <strong>Station:</strong> {transfer.station}<br />
-                <strong>From Route:</strong> {transfer.from_route}<br />
-                <strong>To Route:</strong> {transfer.to_route}<br />
-                <strong>Wait Time:</strong> ~{transfer.wait_minutes || 5} min
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        {hasRoute && transferStations && transferStations.map((transfer, idx) => {
+          const baseCoord = transfer.location || getStationCoords(transfer.station)
+          const position = snapToPath(
+            baseCoord,
+            pathForSnapping,
+            { preferStart: true } // keep transfers on entry side before U-turns
+          ) || [
+            23.027159 + idx * 0.005,
+            72.508525 + idx * 0.01
+          ]
+
+          return (
+            <Marker
+              key={idx}
+              position={position}
+              icon={transferIcon}
+            >
+              <Popup>
+                <div className="popup-content">
+                  <strong>🔄 Transfer #{idx + 1}</strong><br />
+                  <strong>Station:</strong> {transfer.station}<br />
+                  <strong>From Route:</strong> {transfer.from_route}<br />
+                  <strong>To Route:</strong> {transfer.to_route}<br />
+                  <strong>Wait Time:</strong> ~{transfer.wait_minutes || 5} min
+                </div>
+              </Popup>
+            </Marker>
+          )
+        })}
 
         {/* Current bus location (when tracking) */}
         {currentBusLocation && (
