@@ -17,6 +17,7 @@ from janmarg_data import (
     ROUTE_1_STOPS,
     ROUTE_7_STOPS,
     ROUTE_15_STOPS,
+    ROUTE_4_STOPS,
     AVG_DIST_BETWEEN_STOPS_KM,
     is_peak_hour,
     get_traffic_factor,
@@ -28,6 +29,8 @@ from janmarg_data import (
     ROUTE_15_INDICES,
     ROUTE_7_FULL_TRACE,
     ROUTE_7_INDICES,
+    ROUTE_4_FULL_TRACE,
+    ROUTE_4_INDICES,
     FARE_BASE_INR,
     FARE_PER_KM_INR
 )
@@ -69,7 +72,7 @@ def predict_route(route_id: str):
     Physics-based route prediction using official operational parameters
     
     Args:
-        route_id: Route identifier ('1', '15', or '7')
+        route_id: Route identifier ('1', '15', '7', or '4')
     
     Returns:
         JSON object with physics-calculated arrival_time, crowd_level, status, confidence
@@ -215,7 +218,7 @@ def get_insight(
     
     Args:
         route_length_km: Distance of the entire route (optional, for backwards compatibility)
-        route_id: Route identifier ('1', '15', or '7')
+        route_id: Route identifier ('1', '15', '7', or '4')
         origin_station_name: Name of the station where user wants to board
     
     Returns:
@@ -245,7 +248,8 @@ def get_insight(
         route_stops_map = {
             '1': ROUTE_1_STOPS,
             '7': ROUTE_7_STOPS,
-            '15': ROUTE_15_STOPS
+            '15': ROUTE_15_STOPS,
+            '4': ROUTE_4_STOPS
         }
         
         route_stops = route_stops_map.get(route_id)
@@ -383,6 +387,11 @@ def calculate_journey(request_data: dict):
             'stops': ROUTE_7_STOPS,
             'trace': ROUTE_7_FULL_TRACE,
             'indices': ROUTE_7_INDICES
+        },
+        '4': {
+            'stops': ROUTE_4_STOPS,
+            'trace': ROUTE_4_FULL_TRACE,
+            'indices': ROUTE_4_INDICES
         }
     }
     

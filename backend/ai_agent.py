@@ -14,12 +14,15 @@ from janmarg_data import (
     ROUTE_1_STOPS,
     ROUTE_7_STOPS,
     ROUTE_15_STOPS,
+    ROUTE_4_STOPS,
     ROUTE_1_FULL_TRACE,
     ROUTE_7_FULL_TRACE,
     ROUTE_15_FULL_TRACE,
+    ROUTE_4_FULL_TRACE,
     ROUTE_1_INDICES,
     ROUTE_7_INDICES,
-    ROUTE_15_INDICES
+    ROUTE_15_INDICES,
+    ROUTE_4_INDICES
 )
 import random
 import math
@@ -46,7 +49,8 @@ class TransitAIAgent:
         route_defs = {
             "1": (ROUTE_1_STOPS, ROUTE_1_INDICES, ROUTE_1_FULL_TRACE),
             "7": (ROUTE_7_STOPS, ROUTE_7_INDICES, ROUTE_7_FULL_TRACE),
-            "15": (ROUTE_15_STOPS, ROUTE_15_INDICES, ROUTE_15_FULL_TRACE)
+            "15": (ROUTE_15_STOPS, ROUTE_15_INDICES, ROUTE_15_FULL_TRACE),
+            "4": (ROUTE_4_STOPS, ROUTE_4_INDICES, ROUTE_4_FULL_TRACE)
         }
 
         points = []

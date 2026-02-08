@@ -10,14 +10,15 @@ const API_BASE_URL = 'http://localhost:8000';
 const ROUTE_DISTANCES = {
   '1': 12.0,   // Shivranjani to ISKCON
   '15': 25.0,  // ISKCON to Airport
-  '7': 18.0    // Ranip to Engineering College
+  '7': 18.0,   // Ranip to Engineering College
+  '4': 14.5    // L.D. Engineering College to Memnagar
 };
 
 /**
  * Fetch real-time route analytics from AI Agent backend
  * Uses physics-based calculations with official operational parameters
  * 
- * @param {string} routeId - The route identifier ('1', '15', or '7')
+ * @param {string} routeId - The route identifier ('1', '15', '7', or '4')
  * @returns {Promise<Object>} AI prediction data with physics calculations
  */
 export async function fetchRouteAnalytics(routeId) {

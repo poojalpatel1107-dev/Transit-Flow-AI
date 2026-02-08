@@ -35,5 +35,9 @@ out/
 .cache/
 .eslintcache
 
+# Python
+__pycache__/
+*.pyc
+
 # Misc
 server.log

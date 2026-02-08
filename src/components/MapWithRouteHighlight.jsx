@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import useJourneyStore from '../store/useJourneyStore'
-import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS } from '../RouteCoordinates'
+import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS, ROUTE_4_STATIONS } from '../RouteCoordinates'
 import './MapWithRouteHighlight.css'
 
 // Custom marker icons
@@ -20,7 +20,7 @@ const transferIcon = createMarkerIcon('#FFC107', '🔄')
 const busIcon = createMarkerIcon('#2196F3', '🚌')
 
 const STATION_COORDS_MAP = new Map(
-  [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS].map(station => [
+  [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS, ...ROUTE_4_STATIONS].map(station => [
     station.name,
     station.coords
   ])

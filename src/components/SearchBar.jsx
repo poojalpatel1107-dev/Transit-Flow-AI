@@ -16,6 +16,7 @@ const STOPS = [
   'Himmatlal Park',
   'University',
   'Memnagar',
+  'L.D. Engineering College',
   'Sola Cross-Road',
   'Shastrinagar',
   'Pragatinagar',

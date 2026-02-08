@@ -8,10 +8,10 @@ import NearestBusDetector from './components/NearestBusDetector'
 import AIRecommendations from './components/AIRecommendations'
 import JanmargChat from './components/JanmargChat'
 import useJourneyStore from './store/useJourneyStore'
-import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS } from './RouteCoordinates'
+import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS, ROUTE_4_STATIONS } from './RouteCoordinates'
 
 const STATION_COORDS_MAP = new Map(
-  [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS].map(station => [
+  [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS, ...ROUTE_4_STATIONS].map(station => [
     station.name,
     station.coords
   ])

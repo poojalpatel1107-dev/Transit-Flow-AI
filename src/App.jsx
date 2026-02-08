@@ -459,6 +459,8 @@ export default function App() {
         activeStations = ROUTE_15_STATIONS
       } else if (selectedRoute === '7') {
         activeStations = ROUTE_7_STATIONS
+      } else if (selectedRoute === '4') {
+        activeStations = ROUTE_4_STATIONS
       }
     }
     // PRIORITY 2: Multi-route transfer journey (e.g., Route 1 → Route 15 at transfer station)
@@ -472,9 +474,11 @@ export default function App() {
       
       // Get stations from all routes involved
       const firstRouteStations = firstRoute && firstRoute.includes('15') ? ROUTE_15_STATIONS : 
-                                 firstRoute && firstRoute.includes('7') ? ROUTE_7_STATIONS : STATIONS
+                                 firstRoute && firstRoute.includes('7') ? ROUTE_7_STATIONS : 
+                                 firstRoute && firstRoute.includes('4') ? ROUTE_4_STATIONS : STATIONS
       const secondRouteStations = secondRoute && secondRoute.includes('15') ? ROUTE_15_STATIONS : 
-                                  secondRoute && secondRoute.includes('7') ? ROUTE_7_STATIONS : STATIONS
+                                  secondRoute && secondRoute.includes('7') ? ROUTE_7_STATIONS :
+                                  secondRoute && secondRoute.includes('4') ? ROUTE_4_STATIONS : STATIONS
       
       activeStations = [...firstRouteStations, ...secondRouteStations]
       isMultiRouteJourney = true
@@ -494,6 +498,10 @@ export default function App() {
         activePath = ROUTE_7_COORDINATES
         activeStations = ROUTE_7_STATIONS
         setBus7aProgress(0.45)
+      } else if (selectedRoute === '4') {
+        activePath = ROUTE_4_COORDINATES
+        activeStations = ROUTE_4_STATIONS
+        setBus4aProgress(0.5)
       }
     }
 
@@ -1686,7 +1694,7 @@ export default function App() {
         {(transferStation || secondTransferStation) && firstRoute && secondRoute ? (
           <>
             {/* Stations from first route segment */}
-            {(firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS).map((station) => {
+            {(firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : firstRoute && firstRoute[0] === '4' ? ROUTE_4_STATIONS : STATIONS).map((station) => {
               const isFirstTransfer = station.name === transferStation
               const isSecondTransfer = station.name === secondTransferStation
               const isTransfer = isFirstTransfer || isSecondTransfer
@@ -1699,10 +1707,10 @@ export default function App() {
                   pathOptions={{
                     color: isTransfer
                       ? '#ffa500' 
-                      : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                      : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : firstRoute && firstRoute[0] === '4' ? '#ff9900' : '#ff0055'),
                     fillColor: isTransfer
                       ? '#ffa500' 
-                      : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                      : (firstRoute && firstRoute[1] === '5' ? '#00aaff' : firstRoute && firstRoute[0] === '7' ? '#cc00ff' : firstRoute && firstRoute[0] === '4' ? '#ff9900' : '#ff0055'),
                     fillOpacity: 1
                   }}
                   weight={isTransfer ? 4 : 3}
@@ -1726,7 +1734,7 @@ export default function App() {
             })}
             
             {/* Stations from second route segment */}
-            {(secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
+            {(secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : secondRoute && secondRoute[0] === '4' ? ROUTE_4_STATIONS : STATIONS)
               .filter(station => station.name !== transferStation) // Don't duplicate first transfer
               .map((station) => {
                 const isSecondTransfer = station.name === secondTransferStation
@@ -1739,10 +1747,10 @@ export default function App() {
                     pathOptions={{
                       color: isSecondTransfer 
                         ? '#ffa500' 
-                        : (secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                        : (secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : secondRoute && secondRoute[0] === '4' ? '#ff9900' : '#ff0055'),
                       fillColor: isSecondTransfer 
                         ? '#ffa500' 
-                        : (secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : '#ff0055'),
+                        : (secondRoute && secondRoute[1] === '5' ? '#00aaff' : secondRoute && secondRoute[0] === '7' ? '#cc00ff' : secondRoute && secondRoute[0] === '4' ? '#ff9900' : '#ff0055'),
                       fillOpacity: 1
                     }}
                     weight={isSecondTransfer ? 4 : 3}
@@ -1767,7 +1775,7 @@ export default function App() {
             
             {/* Stations from third route segment (if exists) */}
             {thirdRoute && thirdRouteSegment && (
-              (thirdRoute && thirdRoute[1] === '5' ? ROUTE_15_STATIONS : thirdRoute && thirdRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS)
+              (thirdRoute && thirdRoute[1] === '5' ? ROUTE_15_STATIONS : thirdRoute && thirdRoute[0] === '7' ? ROUTE_7_STATIONS : thirdRoute && thirdRoute[0] === '4' ? ROUTE_4_STATIONS : STATIONS)
                 .filter(station => station.name !== transferStation && station.name !== secondTransferStation)
                 .map((station) => (
                   <CircleMarker
@@ -1775,8 +1783,8 @@ export default function App() {
                     center={station.coords}
                     radius={9}
                     pathOptions={{
-                      color: thirdRoute && thirdRoute[1] === '5' ? '#00aaff' : thirdRoute && thirdRoute[0] === '7' ? '#cc00ff' : '#ff0055',
-                      fillColor: thirdRoute && thirdRoute[1] === '5' ? '#00aaff' : thirdRoute && thirdRoute[0] === '7' ? '#cc00ff' : '#ff0055',
+                      color: thirdRoute && thirdRoute[1] === '5' ? '#00aaff' : thirdRoute && thirdRoute[0] === '7' ? '#cc00ff' : thirdRoute && thirdRoute[0] === '4' ? '#ff9900' : '#ff0055',
+                      fillColor: thirdRoute && thirdRoute[1] === '5' ? '#00aaff' : thirdRoute && thirdRoute[0] === '7' ? '#cc00ff' : thirdRoute && thirdRoute[0] === '4' ? '#ff9900' : '#ff0055',
                       fillOpacity: 1
                     }}
                     weight={3}
@@ -1844,7 +1852,7 @@ export default function App() {
           <>
             {/* First Transfer Station Marker */}
             {transferStation && (() => {
-              const stationsList = firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS
+              const stationsList = firstRoute && firstRoute[1] === '5' ? ROUTE_15_STATIONS : firstRoute && firstRoute[0] === '7' ? ROUTE_7_STATIONS : firstRoute && firstRoute[0] === '4' ? ROUTE_4_STATIONS : STATIONS
               const stationObj = stationsList.find(s => s.name === transferStation)
               
               if (!stationObj) return null
@@ -1889,7 +1897,7 @@ export default function App() {
             
             {/* Second Transfer Station Marker */}
             {secondTransferStation && (() => {
-              const stationsList = secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : STATIONS
+              const stationsList = secondRoute && secondRoute[1] === '5' ? ROUTE_15_STATIONS : secondRoute && secondRoute[0] === '7' ? ROUTE_7_STATIONS : secondRoute && secondRoute[0] === '4' ? ROUTE_4_STATIONS : STATIONS
               const stationObj = stationsList.find(s => s.name === secondTransferStation)
               
               if (!stationObj) return null
