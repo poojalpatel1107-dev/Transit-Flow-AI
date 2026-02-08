@@ -5,6 +5,7 @@ import random
 from math import radians, sin, cos, sqrt, atan2
 import os
 import json
+import socket
 from urllib import request as urllib_request
 from urllib.error import URLError
 from janmarg_data import (
@@ -434,6 +435,47 @@ def _path_distance_km(path):
     return sum(_haversine_km(path[i], path[i + 1]) for i in range(len(path) - 1))
 
 
+def _point_to_segment_distance_km(point, a, b):
+    lat1, lon1 = point
+    lat2, lon2 = a
+    lat3, lon3 = b
+
+    lat1r = radians(lat1)
+    lat2r = radians(lat2)
+    lat3r = radians(lat3)
+
+    x1 = lon1 * cos(lat1r)
+    y1 = lat1
+    x2 = lon2 * cos(lat2r)
+    y2 = lat2
+    x3 = lon3 * cos(lat3r)
+    y3 = lat3
+
+    dx = x3 - x2
+    dy = y3 - y2
+    if dx == 0 and dy == 0:
+        return _haversine_km(point, a)
+
+    t = ((x1 - x2) * dx + (y1 - y2) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, t))
+    proj = [y2 + t * dy, (x2 + t * dx) / cos(radians(y2 + t * dy))]
+    return _haversine_km(point, proj)
+
+
+def _path_mean_deviation_km(path, corridor):
+    if not path or not corridor or len(corridor) < 2:
+        return 0.0
+    total = 0.0
+    for point in path:
+        best = None
+        for i in range(len(corridor) - 1):
+            d = _point_to_segment_distance_km(point, corridor[i], corridor[i + 1])
+            if best is None or d < best:
+                best = d
+        total += best if best is not None else 0.0
+    return total / max(1, len(path))
+
+
 def _decode_polyline(polyline_str, precision=6):
     coords = []
     index = 0
@@ -477,6 +519,135 @@ def _decode_polyline(polyline_str, precision=6):
 
 
 VALHALLA_URL = os.getenv("VALHALLA_URL", "https://valhalla1.openstreetmap.de/route").strip()
+VALHALLA_TRACE_URL = os.getenv("VALHALLA_TRACE_URL", "https://valhalla1.openstreetmap.de/trace_route").strip()
+
+
+def _downsample_path(path, max_points=600):
+    if not path or len(path) <= max_points:
+        return path
+    step = max(1, len(path) // max_points)
+    sampled = path[::step]
+    if sampled[-1] != path[-1]:
+        sampled.append(path[-1])
+    return sampled
+
+
+def _densify_path(path, max_segment_meters=120):
+    if not path or len(path) < 2:
+        return path
+    densified = [path[0]]
+    for i in range(1, len(path)):
+        start = path[i - 1]
+        end = path[i]
+        dist_m = _haversine_km(start, end) * 1000
+        if dist_m > max_segment_meters:
+            steps = int(dist_m // max_segment_meters)
+            for step in range(1, steps + 1):
+                t = step / (steps + 1)
+                densified.append([
+                    start[0] + (end[0] - start[0]) * t,
+                    start[1] + (end[1] - start[1]) * t
+                ])
+        densified.append(end)
+    return densified
+
+
+def _valhalla_trace(path):
+    if not VALHALLA_TRACE_URL or not path or len(path) < 2:
+        return None
+
+    guide_path = _densify_path(path)
+    shape = [
+        {"lat": coord[0], "lon": coord[1]}
+        for coord in _downsample_path(guide_path)
+    ]
+
+    base_payload = {
+        "shape": shape,
+        "trace_options": {
+            "search_radius": 45,
+            "gps_accuracy": 8.0
+        },
+        "shape_format": "geojson",
+        "directions_options": {"units": "kilometers"}
+    }
+
+    try:
+        for shape_match in ("map_snap", "edge_walk"):
+            for costing, costing_options in (
+                ("bus", {"bus": {"use_bus": 1.0, "use_roads": 1.0, "use_highways": 0.2}}),
+                ("auto", None)
+            ):
+                payload = {
+                    **base_payload,
+                    "shape_match": shape_match,
+                    "costing": costing
+                }
+                if costing_options:
+                    payload["costing_options"] = costing_options
+
+                data = json.dumps(payload).encode("utf-8")
+                req = urllib_request.Request(
+                    VALHALLA_TRACE_URL,
+                    data=data,
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib_request.urlopen(req, timeout=6) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+
+                leg = result.get("trip", {}).get("legs", [])[0]
+                shape_data = leg.get("shape", {})
+                coords = []
+                if isinstance(shape_data, dict):
+                    coords = shape_data.get("coordinates", [])
+                    if coords:
+                        traced_path = [[lat, lon] for lon, lat in coords]
+                    else:
+                        traced_path = []
+                elif isinstance(shape_data, str):
+                    coords = _decode_polyline(shape_data, precision=6)
+                    if not coords:
+                        coords = _decode_polyline(shape_data, precision=5)
+                    traced_path = coords
+                else:
+                    traced_path = []
+
+                if not traced_path:
+                    continue
+
+                summary = leg.get("summary", {})
+                distance_km = round(summary.get("length", _path_distance_km(traced_path)), 2)
+                eta_minutes = int(round(summary.get("time", 0) / 60))
+
+                return {
+                    "path": traced_path,
+                    "distance_km": distance_km,
+                    "eta_minutes": eta_minutes
+                }
+    except (URLError, TimeoutError, socket.timeout, KeyError, IndexError, ValueError, AttributeError):
+        return None
+
+
+def _is_trace_acceptable(traced_path, corridor_path, max_mean_deviation_km=0.25):
+    if not traced_path or not corridor_path:
+        return False
+    deviation_km = _path_mean_deviation_km(traced_path, corridor_path)
+    if deviation_km > max_mean_deviation_km:
+        return False
+
+    start_dist = _haversine_km(traced_path[0], corridor_path[0])
+    end_dist = _haversine_km(traced_path[-1], corridor_path[-1])
+    if start_dist > 0.45 or end_dist > 0.45:
+        return False
+
+    base_len = _path_distance_km(corridor_path)
+    trace_len = _path_distance_km(traced_path)
+    if base_len > 0:
+        ratio = trace_len / base_len
+        if ratio < 0.75 or ratio > 1.45:
+            return False
+
+    return True
 
 
 def _valhalla_route(start_coord, end_coord):
@@ -567,37 +738,33 @@ def _segment_info(route_id, start_station_idx, end_station_idx, routes_map):
     start_station = stops[start_station_idx]
     end_station = stops[end_station_idx]
 
-    start_coord = _station_coord(route_id, start_station, routes_map)
-    end_coord = _station_coord(route_id, end_station, routes_map)
-
-    valhalla_result = None
-    if start_coord and end_coord:
-        valhalla_result = _valhalla_route(start_coord, end_coord)
-
-    if valhalla_result:
-        path = valhalla_result["path"]
-        distance_km = valhalla_result["distance_km"]
-        eta_minutes = valhalla_result["eta_minutes"]
-        station_count = abs(end_station_idx - start_station_idx) + 1
-        if eta_minutes <= 0:
-            dwell_minutes = (station_count * DWELL_TIME_SEC) / 60
-            eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60 + dwell_minutes))
-        return {
-            "path": path,
-            "distance_km": distance_km,
-            "eta_minutes": eta_minutes,
-            "station_count": station_count
-        }
-
     if start_idx < end_idx:
-        path = full_trace[start_idx: end_idx + 1]
+        base_path = full_trace[start_idx: end_idx + 1]
     else:
-        path = full_trace[end_idx: start_idx + 1][::-1]
+        base_path = full_trace[end_idx: start_idx + 1][::-1]
 
-    distance_km = round(_path_distance_km(path), 2)
+    trace_result = _valhalla_trace(base_path)
+    if trace_result and _is_trace_acceptable(trace_result["path"], base_path):
+        path = trace_result["path"]
+        distance_km = trace_result["distance_km"]
+        eta_minutes = trace_result["eta_minutes"]
+    else:
+        start_coord = _station_coord(route_id, start_station, routes_map) or base_path[0]
+        end_coord = _station_coord(route_id, end_station, routes_map) or base_path[-1]
+        route_result = _valhalla_route(start_coord, end_coord)
+        if route_result and _is_trace_acceptable(route_result["path"], base_path, max_mean_deviation_km=0.45):
+            path = route_result["path"]
+            distance_km = route_result["distance_km"]
+            eta_minutes = route_result["eta_minutes"]
+        else:
+            path = base_path
+            distance_km = round(_path_distance_km(path), 2)
+            eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60))
+
     station_count = abs(end_station_idx - start_station_idx) + 1
-    dwell_minutes = (station_count * DWELL_TIME_SEC) / 60
-    eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60 + dwell_minutes))
+    if eta_minutes <= 0:
+        dwell_minutes = (station_count * DWELL_TIME_SEC) / 60
+        eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60 + dwell_minutes))
 
     return {
         "path": path,
