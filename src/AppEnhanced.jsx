@@ -73,6 +73,9 @@ export default function AppEnhanced() {
 
   // Handle route search
   const handleRouteSelect = async (origin, destination) => {
+    stopTracking()
+    setTransferStations([])
+    setJourney(null)
     setIsLoadingRoute(true)
     setOrigin(origin)
     setDestination(destination)
