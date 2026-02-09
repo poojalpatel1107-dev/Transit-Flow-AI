@@ -208,7 +208,7 @@
 
 .right-tabs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+  grid-template-columns: repeat(4, minmax(80px, 1fr));
   gap: 6px;
   background: rgba(15, 23, 42, 0.6);
   padding: 6px;
@@ -250,6 +250,15 @@
 .right-panel-content > * {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.right-panel-placeholder {
+  background: rgba(2, 6, 23, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .right-panel::-webkit-scrollbar-track {
@@ -309,6 +318,7 @@
 
 /* Responsive Design */
 @media (max-width: 1200px) {
+
   .content-wrapper {
     grid-template-columns: 1fr 0.9fr;
   }

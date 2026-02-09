@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { ArrowRight, Bus, DoorOpen, MapPin, Sparkles, Timer, Users } from 'lucide-react'
 import useJourneyStore from '../store/useJourneyStore'
 import './LiveProgressTracker.css'
 
@@ -9,6 +10,8 @@ export default function LiveProgressTracker({ onComplete }) {
   
   const updateBusLocation = useJourneyStore(state => state.updateBusLocation)
   const updateCurrentPosition = useJourneyStore(state => state.updateCurrentPosition)
+
+  const approachDurationSec = 60
 
   const segments = journey?.segments || (journey ? [
     {
@@ -31,10 +34,12 @@ export default function LiveProgressTracker({ onComplete }) {
 
   const totalSeconds = totalMinutes * 60
   const [timeRemainingSec, setTimeRemainingSec] = useState(totalSeconds)
+  const [approachRemainingSec, setApproachRemainingSec] = useState(approachDurationSec)
 
   useEffect(() => {
     if (!journey) return
     setTimeRemainingSec(totalSeconds)
+    setApproachRemainingSec(approachDurationSec)
   }, [journey, totalSeconds])
 
   // Simulate real-time bus movement
@@ -42,7 +47,15 @@ export default function LiveProgressTracker({ onComplete }) {
     if (!isTracking || !journey) return
 
     const interval = setInterval(() => {
+      setApproachRemainingSec(prev => {
+        if (prev > 0) {
+          return Math.max(0, prev - 0.5)
+        }
+        return 0
+      })
+
       setTimeRemainingSec(prev => {
+        if (approachRemainingSec > 0) return prev
         const next = Math.max(0, prev - 0.5)
         if (next === 0) {
           onComplete?.()
@@ -52,23 +65,31 @@ export default function LiveProgressTracker({ onComplete }) {
     }, 500)
 
     return () => clearInterval(interval)
-  }, [isTracking, journey, onComplete])
+  }, [isTracking, journey, onComplete, approachRemainingSec])
 
   useEffect(() => {
     if (!journey || !journey.path || journey.path.length === 0) return
+    const startCoord = journey.path[0]
+    if (approachRemainingSec > 0) {
+      updateBusLocation(startCoord[0], startCoord[1])
+      updateCurrentPosition(0)
+      return
+    }
+
     const elapsed = Math.max(0, totalSeconds - timeRemainingSec)
     const progress = Math.min(100, (elapsed / totalSeconds) * 100)
     const pathIndex = Math.floor((progress / 100) * (journey.path.length - 1))
     const coord = journey.path[Math.min(pathIndex, journey.path.length - 1)]
     updateBusLocation(coord[0], coord[1])
     updateCurrentPosition(pathIndex)
-  }, [timeRemainingSec, totalSeconds, journey, updateBusLocation, updateCurrentPosition])
+  }, [approachRemainingSec, timeRemainingSec, totalSeconds, journey, updateBusLocation, updateCurrentPosition])
 
   if (!isTracking || !journey) {
     return null
   }
 
   const elapsedSec = Math.max(0, totalSeconds - timeRemainingSec)
+  const isApproaching = approachRemainingSec > 0
   let running = elapsedSec
   let currentSegmentIndex = 0
   let timeToNextTransferSec = 0
@@ -95,21 +116,26 @@ export default function LiveProgressTracker({ onComplete }) {
   const safeSegmentDistance = Number.isFinite(segmentDistance) ? segmentDistance : 0
   const progressPercent = Math.min(100, (elapsedSec / totalSeconds) * 100)
   const timeRemainingMin = Math.max(0, Math.ceil(timeRemainingSec / 60))
+  const approachRemainingMin = Math.max(1, Math.ceil(approachRemainingSec / 60))
 
   return (
     <div className="live-tracker-container">
       {/* Top Header with Timer */}
       <div className="tracker-header">
         <div className="tracker-status">
-          <span className="status-icon">🚌</span>
+          <span className="status-icon">
+            {isApproaching ? <Sparkles size={18} /> : <Bus size={18} />}
+          </span>
           <div className="status-info">
-            <h2>En Route</h2>
+            <h2>{isApproaching ? 'Bus Approaching' : 'En Route'}</h2>
             <p>{journey.origin} → {journey.destination} • Route {currentSegment.route_id}</p>
           </div>
         </div>
 
         <div className="eta-badge">
-          <span className="timer">⏱️ {timeRemainingMin} min</span>
+          <span className="timer">
+            <Timer size={14} /> {isApproaching ? `${approachRemainingMin} min` : `${timeRemainingMin} min`}
+          </span>
         </div>
       </div>
 
@@ -119,10 +145,12 @@ export default function LiveProgressTracker({ onComplete }) {
           <div className="progress-bar">
             <div
               className="progress-fill"
-              style={{ width: `${Math.min(progressPercent > 0 ? Math.max(progressPercent, 1) : 0, 100)}%` }}
+              style={{ width: `${isApproaching ? 0 : Math.min(progressPercent > 0 ? Math.max(progressPercent, 1) : 0, 100)}%` }}
             />
           </div>
-          <span className="progress-label">{Math.min(Math.round(progressPercent), 100)}% complete</span>
+          <span className="progress-label">
+            {isApproaching ? 'Waiting for arrival' : `${Math.min(Math.round(progressPercent), 100)}% complete`}
+          </span>
         </div>
       </div>
 
@@ -132,13 +160,13 @@ export default function LiveProgressTracker({ onComplete }) {
           <div className="current-station-card">
             <div className="station-header">Boarding From</div>
             <div className="station-name">
-              <span className="icon">🚪</span>
+              <span className="icon"><DoorOpen size={16} /></span>
               {currentSegment.from_station}
             </div>
           </div>
 
           <div className="direction-arrow">
-            <span>━━━━→</span>
+            <ArrowRight size={20} />
           </div>
 
           <div className="next-station-card">
@@ -148,9 +176,7 @@ export default function LiveProgressTracker({ onComplete }) {
                 : '🎯 Destination'}
             </div>
             <div className="station-name">
-              <span className="icon">
-                {hasTransfers && currentSegmentIndex < segments.length - 1 ? '🔄' : '📍'}
-              </span>
+              <span className="icon"><MapPin size={16} /></span>
               {currentSegment.to_station}
             </div>
           </div>
@@ -181,7 +207,7 @@ export default function LiveProgressTracker({ onComplete }) {
       {/* Segment Info Cards */}
       <div className="segment-cards">
         <div className="info-card">
-          <span className="card-icon">📏</span>
+          <span className="card-icon"><MapPin size={16} /></span>
           <div className="card-content">
             <p className="card-label">Distance</p>
             <p className="card-value">
@@ -191,7 +217,7 @@ export default function LiveProgressTracker({ onComplete }) {
         </div>
 
         <div className="info-card">
-          <span className="card-icon">⚡</span>
+          <span className="card-icon"><Timer size={16} /></span>
           <div className="card-content">
             <p className="card-label">Speed</p>
             <p className="card-value">~26 km/h</p>
@@ -199,7 +225,7 @@ export default function LiveProgressTracker({ onComplete }) {
         </div>
 
         <div className="info-card">
-          <span className="card-icon">👥</span>
+          <span className="card-icon"><Users size={16} /></span>
           <div className="card-content">
             <p className="card-label">Occupancy</p>
             <p className="card-value">65%</p>

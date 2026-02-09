@@ -42,12 +42,15 @@ from janmarg_config import (
     get_crowd_level
 )
 from ai_agent import transit_ai
+from ai_engine import JanmargBrain
 
 app = FastAPI(
     title="Transit Flow AI Backend",
     description="Knowledge-driven AI engine for Janmarg BRTS predictions",
     version="2.0.0"
 )
+
+janmarg_brain = JanmargBrain()
 
 # Enable CORS for all origins (allows React frontend to communicate)
 app.add_middleware(
@@ -1384,6 +1387,42 @@ def smart_recommendations(request_data: dict):
     journey = request_data.get("journey")
     
     return transit_ai.get_smart_recommendations(origin, destination, journey)
+
+
+@app.post("/api/chat")
+def janmarg_ai_chat(request_data: dict):
+    """
+    RAG-powered chat endpoint using the World Bank GEF report.
+    """
+    message = (request_data.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    origin = (request_data.get("origin") or "").strip()
+    destination = (request_data.get("destination") or "").strip()
+    journey = request_data.get("journey") or {}
+    history = request_data.get("history") or []
+
+    user_context = ""
+    if origin or destination:
+        user_context = f"origin={origin}, destination={destination}"
+    if journey:
+        distance = journey.get("total_distance_km")
+        route_id = journey.get("route_id") or journey.get("route_1")
+        if distance is not None:
+            user_context = f"{user_context}, distance_km={distance}" if user_context else f"distance_km={distance}"
+        if route_id:
+            user_context = f"{user_context}, route={route_id}" if user_context else f"route={route_id}"
+
+    response = janmarg_brain.ask_llama(
+        message,
+        user_context=user_context or None,
+        history=history
+    )
+    return {
+        "response": response,
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.post("/api/janmarg-chat")
