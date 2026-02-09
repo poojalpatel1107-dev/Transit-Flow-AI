@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Bus, DoorOpen, MapPin, Sparkles, Timer, Users } from 'lucide-react'
 import useJourneyStore from '../store/useJourneyStore'
 import './LiveProgressTracker.css'
@@ -11,7 +11,7 @@ export default function LiveProgressTracker({ onComplete }) {
   const updateBusLocation = useJourneyStore(state => state.updateBusLocation)
   const updateCurrentPosition = useJourneyStore(state => state.updateCurrentPosition)
 
-  const approachDurationSec = 60
+  const approachDurationSec = 3
 
   const segments = journey?.segments || (journey ? [
     {
@@ -36,53 +36,162 @@ export default function LiveProgressTracker({ onComplete }) {
   const [timeRemainingSec, setTimeRemainingSec] = useState(totalSeconds)
   const [approachRemainingSec, setApproachRemainingSec] = useState(approachDurationSec)
 
+  const animationRef = useRef(null)
+  const lastFrameRef = useRef(null)
+  const startTimeRef = useRef(null)
+  const speedMultiplierRef = useRef(1)
+  const lastSpeedUpdateRef = useRef(0)
+  const distanceTravelledRef = useRef(0)
+  const distanceTableRef = useRef({ cumulative: [], total: 0 })
+  const lastUiUpdateRef = useRef(0)
+
+  const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
+    const R = 6371
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
+  }
+
   useEffect(() => {
     if (!journey) return
     setTimeRemainingSec(totalSeconds)
     setApproachRemainingSec(approachDurationSec)
   }, [journey, totalSeconds])
 
-  // Simulate real-time bus movement
-  useEffect(() => {
-    if (!isTracking || !journey) return
+  const buildDistanceTable = (path) => {
+    const cumulative = [0]
+    let total = 0
+    for (let i = 1; i < path.length; i += 1) {
+      const prev = path[i - 1]
+      const curr = path[i]
+      const seg = Math.max(1, getDistanceFromLatLonInKm(prev[0], prev[1], curr[0], curr[1]) * 1000)
+      total += seg
+      cumulative.push(total)
+    }
+    return { cumulative, total }
+  }
 
-    const interval = setInterval(() => {
-      setApproachRemainingSec(prev => {
-        if (prev > 0) {
-          return Math.max(0, prev - 0.5)
-        }
-        return 0
-      })
+  const getCoordAtDistance = (path, cumulative, distanceMeters) => {
+    if (!path || path.length === 0) return { coord: null, index: 0 }
+    if (distanceMeters <= 0) return { coord: path[0], index: 0 }
+    const total = cumulative[cumulative.length - 1] || 0
+    if (distanceMeters >= total) return { coord: path[path.length - 1], index: path.length - 1 }
 
-      setTimeRemainingSec(prev => {
-        if (approachRemainingSec > 0) return prev
-        const next = Math.max(0, prev - 0.5)
-        if (next === 0) {
-          onComplete?.()
-        }
-        return next
-      })
-    }, 500)
-
-    return () => clearInterval(interval)
-  }, [isTracking, journey, onComplete, approachRemainingSec])
-
-  useEffect(() => {
-    if (!journey || !journey.path || journey.path.length === 0) return
-    const startCoord = journey.path[0]
-    if (approachRemainingSec > 0) {
-      updateBusLocation(startCoord[0], startCoord[1])
-      updateCurrentPosition(0)
-      return
+    let idx = 0
+    while (idx < cumulative.length - 1 && cumulative[idx + 1] < distanceMeters) {
+      idx += 1
     }
 
-    const elapsed = Math.max(0, totalSeconds - timeRemainingSec)
-    const progress = Math.min(100, (elapsed / totalSeconds) * 100)
-    const pathIndex = Math.floor((progress / 100) * (journey.path.length - 1))
-    const coord = journey.path[Math.min(pathIndex, journey.path.length - 1)]
-    updateBusLocation(coord[0], coord[1])
-    updateCurrentPosition(pathIndex)
-  }, [approachRemainingSec, timeRemainingSec, totalSeconds, journey, updateBusLocation, updateCurrentPosition])
+    const start = path[idx]
+    const end = path[idx + 1]
+    const segStart = cumulative[idx]
+    const segEnd = cumulative[idx + 1]
+    const span = Math.max(1, segEnd - segStart)
+    const t = Math.min(1, Math.max(0, (distanceMeters - segStart) / span))
+
+    return {
+      coord: [
+        start[0] + (end[0] - start[0]) * t,
+        start[1] + (end[1] - start[1]) * t
+      ],
+      index: idx
+    }
+  }
+
+  // Simulate real-time bus movement (dynamic, Uber-like)
+  useEffect(() => {
+    if (!isTracking || !journey || !journey.path || journey.path.length === 0) return
+
+    distanceTableRef.current = buildDistanceTable(journey.path)
+    const totalDistance = distanceTableRef.current.total
+    if (!totalDistance) return
+
+    const baseSpeedMps = Math.max(28, totalDistance / Math.max(1, totalSeconds))
+    const approachDurationMs = approachDurationSec * 1000
+
+    distanceTravelledRef.current = 0
+    speedMultiplierRef.current = 1
+    lastSpeedUpdateRef.current = 0
+    startTimeRef.current = null
+    lastFrameRef.current = null
+    lastUiUpdateRef.current = 0
+
+    const animate = (now) => {
+      if (!startTimeRef.current) {
+        startTimeRef.current = now
+        lastFrameRef.current = now
+      }
+
+      const deltaSec = Math.max(0.001, (now - lastFrameRef.current) / 1000)
+      lastFrameRef.current = now
+
+      const elapsedMs = now - startTimeRef.current
+      const approachRemaining = Math.max(0, approachDurationMs - elapsedMs)
+
+      if (approachRemaining > 0) {
+        const startCoord = journey.path[0]
+        updateBusLocation(startCoord[0], startCoord[1])
+        updateCurrentPosition(0)
+        if (now - lastUiUpdateRef.current > 250) {
+          setApproachRemainingSec(Math.ceil(approachRemaining / 1000))
+          setTimeRemainingSec(totalSeconds)
+          lastUiUpdateRef.current = now
+        }
+        animationRef.current = requestAnimationFrame(animate)
+        return
+      }
+
+      if (!lastSpeedUpdateRef.current || now - lastSpeedUpdateRef.current > 2200) {
+        speedMultiplierRef.current = 1.25 + Math.random() * 0.9
+        lastSpeedUpdateRef.current = now
+      }
+
+      const speedMps = baseSpeedMps * speedMultiplierRef.current
+      distanceTravelledRef.current = Math.min(
+        totalDistance,
+        distanceTravelledRef.current + speedMps * deltaSec
+      )
+
+      const { coord, index } = getCoordAtDistance(
+        journey.path,
+        distanceTableRef.current.cumulative,
+        distanceTravelledRef.current
+      )
+
+      if (coord) {
+        updateBusLocation(coord[0], coord[1])
+        updateCurrentPosition(index)
+      }
+
+      if (now - lastUiUpdateRef.current > 250) {
+        const remainingDistance = Math.max(0, totalDistance - distanceTravelledRef.current)
+        const remainingSec = Math.ceil(remainingDistance / Math.max(1, speedMps))
+        setApproachRemainingSec(0)
+        setTimeRemainingSec(remainingSec)
+        lastUiUpdateRef.current = now
+      }
+
+      if (distanceTravelledRef.current >= totalDistance) {
+        setTimeRemainingSec(0)
+        onComplete?.()
+        return
+      }
+
+      animationRef.current = requestAnimationFrame(animate)
+    }
+
+    animationRef.current = requestAnimationFrame(animate)
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+    }
+  }, [isTracking, journey, totalSeconds, approachDurationSec, onComplete, updateBusLocation, updateCurrentPosition])
 
   if (!isTracking || !journey) {
     return null

@@ -261,6 +261,24 @@
   background: rgba(26, 31, 38, 0.9);
 }
 
+.leaflet-div-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.custom-marker-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.transfer-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
 /* Override leaflet popup styling */
 .leaflet-popup-content-wrapper {
   background-color: #1a1f26;

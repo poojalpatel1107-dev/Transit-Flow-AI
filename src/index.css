@@ -136,7 +136,23 @@ body {
   background: #0b1222;
 }
 
-/* Fix for broken marker icons (common in React) */
+/* Remove default Leaflet square backgrounds for custom div icons */
+.leaflet-div-icon,
+.leaflet-marker-icon,
+.leaflet-marker-shadow,
 .leaflet-default-icon-path {
-  background-image: url(https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}
+
+.leaflet-container .leaflet-div-icon,
+.leaflet-container .leaflet-marker-icon,
+.leaflet-container img.leaflet-marker-icon,
+.leaflet-container img.leaflet-marker-shadow {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 999px !important;
 }

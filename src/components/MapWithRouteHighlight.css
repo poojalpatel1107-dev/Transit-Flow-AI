@@ -114,3 +114,33 @@
 .leaflet-control-zoom-out:hover {
   background-color: #f5f5f5 !important;
 }
+
+.custom-marker-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.leaflet-div-icon.custom-marker-icon,
+.leaflet-marker-icon.custom-marker-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.marker-svg-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.leaflet-div-icon.marker-svg-icon,
+.leaflet-marker-icon.marker-svg-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.marker-svg-icon svg {
+  display: block;
+}

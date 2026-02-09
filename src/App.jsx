@@ -37,8 +37,10 @@ const calculateTravelTime = (distance) => {
   return timeInHours * 3600000 // Convert to milliseconds
 }
 
-// 🚌 SPEED FACTOR: meters per millisecond (≈ 40 km/h)
-const SPEED_FACTOR = 0.011
+// 🚌 SPEED: meters per second (≈ 79 km/h)
+const SPEED_MPS = 22
+const STATION_DWELL_MS = 600
+const MIN_SEGMENT_METERS = 0.5
 
 // 🚏 STATION COORDINATES (Exact GPS coordinates with index references)
 const STOPS = ['ISKCON', 'Ramdev Nagar', 'Shivranjani', 'Jhansi Ki Rani', 'Nehrunagar', 'Manekbag', 'Dharnidhar Derasar', 'Anjali Cross Road']
@@ -317,7 +319,7 @@ const createBusIcon = (color, rotation = 0) => {
     `,
     iconSize: [32, 32],
     iconAnchor: [16, 16],
-    className: ''
+    className: 'custom-marker-icon'
   })
 }
 
@@ -442,6 +444,7 @@ export default function App() {
   const isPausedRef = useRef(false)
   const aiTriggeredRef = useRef(new Set())
   const hasStoppedAtRef = useRef(new Set()) // Track visited stations
+  const hasArrivedRef = useRef(false)
 
   useEffect(() => {
     // Determine the actual path the bus should take based on the journey
@@ -510,14 +513,41 @@ export default function App() {
       return
     }
 
-    let segmentStartTime = null
+    const isJourneyMode = Boolean(
+      (segmentCoordinates && segmentCoordinates.length > 0) ||
+      transferStation ||
+      secondTransferStation ||
+      firstRouteSegment ||
+      secondRouteSegment ||
+      thirdRouteSegment
+    )
+
+    const buildDistanceTable = (path) => {
+      const cumulative = [0]
+      let total = 0
+      for (let i = 1; i < path.length; i += 1) {
+        const prev = path[i - 1]
+        const curr = path[i]
+        const seg = getDistanceFromLatLonInKm(prev[0], prev[1], curr[0], curr[1]) * 1000
+        total += Math.max(seg, MIN_SEGMENT_METERS)
+        cumulative.push(total)
+      }
+      return { cumulative, total }
+    }
+
+    const distanceTable = buildDistanceTable(activePath)
+    const totalDistanceMeters = Math.max(distanceTable.total, 1)
+
+    let startTimestamp = null
     let currentIndex = 0
     let pauseStartTime = null
+    let pausedMs = 0
 
     // RESET BUS STATE when selectedRoute changes
     isPausedRef.current = false
     hasStoppedAtRef.current = new Set()
     aiTriggeredRef.current = new Set()
+    hasArrivedRef.current = false
 
     setBusStatus('En Route 🟢')
     
@@ -526,14 +556,14 @@ export default function App() {
     const totalSegments = Math.max(activePath.length - 1, 1)
 
     const animate = (timestamp) => {
-      if (!segmentStartTime) segmentStartTime = timestamp
+      if (!startTimestamp) startTimestamp = timestamp
 
       if (isPausedRef.current) {
-        if (pauseStartTime && timestamp - pauseStartTime >= 3000) {
+        if (pauseStartTime && timestamp - pauseStartTime >= STATION_DWELL_MS) {
           isPausedRef.current = false
           setBusStatus('En Route 🟢')
+          pausedMs += (timestamp - pauseStartTime)
           pauseStartTime = null
-          segmentStartTime = timestamp
         } else {
           requestAnimationFrame(animate)
           return
@@ -547,17 +577,53 @@ export default function App() {
       const end = activePath[nextIndex]
 
       if (!end || !start || currentIndex >= activePath.length - 1) {
-        // Journey complete - loop back to start
+        if (isJourneyMode) {
+          if (!hasArrivedRef.current) {
+            hasArrivedRef.current = true
+            const finalPosition = activePath[activePath.length - 1]
+            setBusPosition({ coords: finalPosition, bearing: 0, progress: 1 })
+            setBusStatus('✅ Arrived at destination')
+            if (selectedRoute === '1') {
+              setBus1Progress(1)
+            } else if (selectedRoute === '15') {
+              setBus15Progress(1)
+            } else if (selectedRoute === '7') {
+              setBus7Progress(1)
+            } else if (selectedRoute === '4') {
+              setBus4Progress(1)
+            }
+          }
+          return
+        }
+
+        // Browsing mode: loop back to start
         currentIndex = 0
-        segmentStartTime = timestamp
+        startTimestamp = timestamp
+        pausedMs = 0
         hasStoppedAtRef.current.clear()
         requestAnimationFrame(animate)
         return
       }
 
-      const distance = getDistanceFromLatLonInKm(start[0], start[1], end[0], end[1])
-      const duration = Math.max((distance * 1000) / SPEED_FACTOR, 1)
-      const segmentProgress = Math.min((timestamp - segmentStartTime) / duration, 1)
+      const elapsedMs = Math.max(0, timestamp - startTimestamp - pausedMs)
+      let distanceTravelled = (elapsedMs / 1000) * SPEED_MPS
+      if (!isJourneyMode) {
+        distanceTravelled = distanceTravelled % totalDistanceMeters
+        if (distanceTravelled < distanceTable.cumulative[currentIndex]) {
+          currentIndex = 0
+        }
+      } else if (distanceTravelled >= totalDistanceMeters) {
+        distanceTravelled = totalDistanceMeters
+      }
+
+      while (currentIndex < distanceTable.cumulative.length - 2 && distanceTable.cumulative[currentIndex + 1] < distanceTravelled) {
+        currentIndex += 1
+      }
+
+      const segmentStartDist = distanceTable.cumulative[currentIndex]
+      const segmentEndDist = distanceTable.cumulative[currentIndex + 1]
+      const segmentSpan = Math.max(segmentEndDist - segmentStartDist, MIN_SEGMENT_METERS)
+      const segmentProgress = Math.min((distanceTravelled - segmentStartDist) / segmentSpan, 1)
 
       const position = [
         lerp(start[0], end[0], segmentProgress),
@@ -581,7 +647,7 @@ export default function App() {
         return
       }
 
-      const overallProgress = (currentIndex + segmentProgress) / Math.max(totalSegments, 1)
+      const overallProgress = Math.min(distanceTravelled / totalDistanceMeters, 1)
 
       setBusPosition({ coords: position, bearing, progress: overallProgress })
 
@@ -649,7 +715,6 @@ export default function App() {
 
       if (segmentProgress >= 1) {
         currentIndex = Math.min(currentIndex + 1, activePath.length - 1)
-        segmentStartTime = timestamp
       }
 
       requestAnimationFrame(animate)
@@ -1871,12 +1936,15 @@ export default function App() {
                       display: flex;
                       align-items: center;
                       justify-content: center;
-                      font-size: 20px;
                       box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 40px rgba(255, 165, 0, 0.4);
                       cursor: pointer;
-                    ">🔄</div>`,
+                    ">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M7 7h8l-2-2m2 2-2 2M17 17H9l2-2m-2 2 2 2" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </div>`,
                     iconSize: [40, 40],
-                    className: 'transfer-icon'
+                    className: 'transfer-icon marker-svg-icon'
                   })}
                   eventHandlers={{
                     click: () => {
@@ -1916,12 +1984,15 @@ export default function App() {
                       display: flex;
                       align-items: center;
                       justify-content: center;
-                      font-size: 20px;
                       box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 40px rgba(255, 165, 0, 0.4);
                       cursor: pointer;
-                    ">🔄</div>`,
+                    ">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M7 7h8l-2-2m2 2-2 2M17 17H9l2-2m-2 2 2 2" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </div>`,
                     iconSize: [40, 40],
-                    className: 'transfer-icon'
+                    className: 'transfer-icon marker-svg-icon'
                   })}
                   eventHandlers={{
                     click: () => {

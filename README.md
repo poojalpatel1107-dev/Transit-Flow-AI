@@ -27,6 +27,9 @@ This comprehensive document includes:
 ```bash
 cd backend
 pip install -r requirements.txt
+cp .env.example .env
+# On Windows PowerShell: Copy-Item .env.example .env
+# Then edit .env and set GROQ_API_KEY
 python server.py
 ```
 

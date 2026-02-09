@@ -5,19 +5,36 @@ import useJourneyStore from '../store/useJourneyStore'
 import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS, ROUTE_4_STATIONS } from '../RouteCoordinates'
 import './MapWithRouteHighlight.css'
 
-// Custom marker icons
-const createMarkerIcon = (color, label) => {
+const createMarkerIcon = (color, innerSvg) => {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+      <circle cx="18" cy="18" r="14" fill="${color}" stroke="white" stroke-width="3" />
+      <g transform="translate(9,9)">
+        ${innerSvg}
+      </g>
+    </svg>
+  `
+
   return L.divIcon({
-    html: `<div style="background: ${color}; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${label}</div>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
+    html: svg,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    className: 'marker-svg-icon'
   })
 }
 
-const startIcon = createMarkerIcon('#4CAF50', '📍')
-const endIcon = createMarkerIcon('#FF6B6B', '🎯')
-const transferIcon = createMarkerIcon('#FFC107', '🔄')
-const busIcon = createMarkerIcon('#2196F3', '🚌')
+const startIcon = createMarkerIcon('#4CAF50',
+  '<path d="M9 0C5.1 0 2 3.1 2 7c0 5.2 7 14 7 14s7-8.8 7-14c0-3.9-3.1-7-7-7zm0 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4z" fill="white"/>'
+)
+const endIcon = createMarkerIcon('#FF6B6B',
+  '<circle cx="9" cy="9" r="7" stroke="white" stroke-width="2" fill="none"/><circle cx="9" cy="9" r="3" fill="white"/>'
+)
+const transferIcon = createMarkerIcon('#FFC107',
+  '<path d="M4 4h8L10 2m2 2-2 2M14 14H6l2-2m-2 2 2 2" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+)
+const busIcon = createMarkerIcon('#2196F3',
+  '<rect x="2" y="3" width="14" height="9" rx="2" ry="2" stroke="white" stroke-width="2" fill="none"/><circle cx="5" cy="15" r="2" fill="white"/><circle cx="13" cy="15" r="2" fill="white"/><path d="M2 7h14" stroke="white" stroke-width="2"/>'
+)
 
 const STATION_COORDS_MAP = new Map(
   [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS, ...ROUTE_4_STATIONS].map(station => [

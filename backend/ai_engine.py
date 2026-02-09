@@ -112,38 +112,10 @@ class JanmargBrain:
                     "Fare bands: <3=5, 3-5=10, 5-8=15, 8-14=20, 14-20=25, >20=30."
                 )
 
-        text = self.official_context or ""
-        if not text:
-            return "I can only answer based on official BRTS protocols."
-
-        keywords = []
-        q = query.lower()
-        if "fare" in q or "ticket" in q or "price" in q:
-            keywords.append("fare")
-        if "headway" in q or "frequency" in q or "interval" in q:
-            keywords.extend(["headway", "frequency"])
-        if "speed" in q or "commercial" in q:
-            keywords.append("commercial speed")
-        if "peak" in q:
-            keywords.append("peak")
-        if "dwell" in q:
-            keywords.append("dwell")
-        if "station" in q and "cost" in q:
-            keywords.append("station cost")
-
-        if not keywords:
-            keywords = ["commercial speed", "headway", "peak", "fare"]
-
-        lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()]
-        matches = []
-        for line in lines:
-            lower = line.lower()
-            if any(k in lower for k in keywords):
-                matches.append(line)
-        if matches:
-            return "\n".join(matches[:6])
-
-        return "I can only answer based on official BRTS protocols."
+        return (
+            "I can answer fares, routes, and operating hours. "
+            "Ask like: 'fare from ISKCON to VGEC' or 'route from LD to VGEC'."
+        )
 
     def ask_llama(self, user_query, user_context=None, history=None):
         query = (user_query or "").strip()
@@ -152,7 +124,8 @@ class JanmargBrain:
 
         api_key = os.getenv("GROQ_API_KEY", "").strip()
         if not api_key:
-            return self._fallback_answer(query, user_context=user_context)
+            fallback = self._fallback_answer(query, user_context=user_context)
+            return "LLM unavailable (missing GROQ_API_KEY). " + fallback
 
         context_block = ""
         if user_context:

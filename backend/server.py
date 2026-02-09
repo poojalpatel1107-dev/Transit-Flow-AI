@@ -6,6 +6,8 @@ from math import radians, sin, cos, sqrt, atan2
 import os
 import json
 import socket
+import time
+import re
 from urllib import request as urllib_request
 from urllib.error import URLError
 from janmarg_data import (
@@ -43,6 +45,9 @@ from janmarg_config import (
 )
 from ai_agent import transit_ai
 from ai_engine import JanmargBrain
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(
     title="Transit Flow AI Backend",
@@ -523,6 +528,28 @@ def _decode_polyline(polyline_str, precision=6):
 
 VALHALLA_URL = os.getenv("VALHALLA_URL", "https://valhalla1.openstreetmap.de/route").strip()
 VALHALLA_TRACE_URL = os.getenv("VALHALLA_TRACE_URL", "https://valhalla1.openstreetmap.de/trace_route").strip()
+USE_VALHALLA = os.getenv("USE_VALHALLA", "true").strip().lower() not in ("0", "false", "no", "off")
+
+SEGMENT_CACHE_TTL_SEC = int(os.getenv("SEGMENT_CACHE_TTL_SEC", "900"))
+SEGMENT_CACHE_MAX = int(os.getenv("SEGMENT_CACHE_MAX", "128"))
+_SEGMENT_CACHE = {}
+
+
+def _cache_get_segment(key):
+    entry = _SEGMENT_CACHE.get(key)
+    if not entry:
+        return None
+    if (time.time() - entry["ts"]) > SEGMENT_CACHE_TTL_SEC:
+        _SEGMENT_CACHE.pop(key, None)
+        return None
+    return entry["value"]
+
+
+def _cache_set_segment(key, value):
+    if len(_SEGMENT_CACHE) >= SEGMENT_CACHE_MAX:
+        oldest_key = min(_SEGMENT_CACHE.items(), key=lambda item: item[1]["ts"])[0]
+        _SEGMENT_CACHE.pop(oldest_key, None)
+    _SEGMENT_CACHE[key] = {"value": value, "ts": time.time()}
 
 
 def _downsample_path(path, max_points=600):
@@ -792,6 +819,11 @@ def _station_coord(route_id, station_name, routes_map):
 
 def _segment_info(route_id, start_station_idx, end_station_idx, routes_map):
     """Calculate path, distance, and ETA for a segment between two stations on the same route."""
+    cache_key = (route_id, start_station_idx, end_station_idx)
+    cached = _cache_get_segment(cache_key)
+    if cached:
+        return cached
+
     route = routes_map[route_id]
     full_trace = route['trace']
     indices = route['indices']
@@ -818,7 +850,7 @@ def _segment_info(route_id, start_station_idx, end_station_idx, routes_map):
         in_range = (start_station_idx <= himmat_idx <= end_station_idx) or (end_station_idx <= himmat_idx <= start_station_idx)
         force_base_path = in_range
 
-    if force_base_path:
+    if force_base_path or not USE_VALHALLA:
         path = base_path
         distance_km = round(_path_distance_km(path), 2)
         eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60))
@@ -852,12 +884,14 @@ def _segment_info(route_id, start_station_idx, end_station_idx, routes_map):
         dwell_minutes = (station_count * DWELL_TIME_SEC) / 60
         eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60 + dwell_minutes))
 
-    return {
+    result = {
         "path": path,
         "distance_km": distance_km,
         "eta_minutes": eta_minutes,
         "station_count": station_count
     }
+    _cache_set_segment(cache_key, result)
+    return result
 
 
 def _calculate_direct_path(route_id, origin_idx, dest_idx, origin, destination, routes_map):
@@ -1389,6 +1423,252 @@ def smart_recommendations(request_data: dict):
     return transit_ai.get_smart_recommendations(origin, destination, journey)
 
 
+STATION_ALIASES = {
+    "iskcon": "ISKCON Cross Road",
+    "iskcon cross road": "ISKCON Cross Road",
+    "iskcon crossroads": "ISKCON Cross Road",
+    "iskon": "ISKCON Cross Road",
+    "iskon cross road": "ISKCON Cross Road",
+    "vgc": "Vishwakarma Government Engineering College",
+    "vgec": "Vishwakarma Government Engineering College",
+    "engineering college": "Vishwakarma Government Engineering College",
+    "vishwakarma": "Vishwakarma Government Engineering College",
+    "vishwakarma college": "Vishwakarma Government Engineering College",
+    "ld engineering college": "L.D. Engineering College",
+    "ld college": "L.D. Engineering College",
+    "l d engineering college": "L.D. Engineering College",
+    "airport": "Ahmedabad Domestic Airport",
+    "domestic airport": "Ahmedabad Domestic Airport",
+    "ahmedabad airport": "Ahmedabad Domestic Airport",
+    "rto": "RTO Circle",
+    "university": "University",
+    "memnagar": "Memnagar",
+    "himmatlal park": "Himmatlal Park",
+    "jodhpur": "Jodhpur Char Rasta",
+    "jodhpur char rasta": "Jodhpur Char Rasta",
+    "ramdev nagar": "Ramdev Nagar",
+    "ramdevnagar": "Ramdev Nagar",
+    "nehrunagar": "Nehrunagar",
+    "manekbag": "Manekbag",
+    "dharnidhar": "Dharnidhar Derasar",
+    "dharni dhar": "Dharnidhar Derasar",
+    "anjali": "Anjali Cross Road",
+    "anjali cross road": "Anjali Cross Road",
+    "star bazaar": "Star Bazaar",
+    "isro colony": "ISRO Colony",
+    "sola": "Sola Cross-Road",
+    "sola cross road": "Sola Cross-Road",
+    "shastrinagar": "Shastrinagar",
+    "pragatinagar": "Pragatinagar",
+    "akbarnagar": "Akbarnagar",
+    "ranip": "Ranip Cross-Road",
+    "ranip cross road": "Ranip Cross-Road",
+    "sabarmati power house": "Sabarmati Power-House",
+    "sabarmati power-house": "Sabarmati Power-House",
+    "sabarmati police": "Sabarmati Police Station",
+    "motera": "Motera Cross-Road",
+    "visat": "Visat-Gandhinagar Junction",
+    "visat gandhinagar": "Visat-Gandhinagar Junction",
+    "shivranjani": "Shivranjani",
+}
+
+
+def _normalize_station_name(name: str) -> str:
+    if not name:
+        return ""
+    cleaned = name.strip().lower()
+    cleaned = cleaned.replace("&", "and")
+    cleaned = re.sub(r"[^a-z0-9\s]", " ", cleaned)
+    return " ".join(cleaned.split())
+
+
+def _resolve_station_name(name: str, stops) -> str:
+    normalized = _normalize_station_name(name)
+    if not normalized:
+        return ""
+    alias = STATION_ALIASES.get(normalized)
+    if alias and alias in stops:
+        return alias
+    for stop in stops:
+        if _normalize_station_name(stop) == normalized:
+            return stop
+    return ""
+
+
+def _build_station_lookup(routes_map):
+    lookup = {}
+    for route_data in routes_map.values():
+        for stop in route_data.get("stops", []):
+            lookup[_normalize_station_name(stop)] = stop
+    for alias, canonical in STATION_ALIASES.items():
+        lookup[_normalize_station_name(alias)] = canonical
+    return lookup
+
+
+def _extract_stations_from_message(message: str, routes_map):
+    normalized = _normalize_station_name(message)
+    if not normalized:
+        return []
+
+    lookup = _build_station_lookup(routes_map)
+    candidates = list(lookup.keys())
+    matches = []
+
+    for key in candidates:
+        idx = normalized.find(key)
+        if idx >= 0:
+            matches.append((idx, lookup[key]))
+
+    if not matches:
+        return []
+
+    matches.sort(key=lambda item: item[0])
+    ordered = []
+    for _, station in matches:
+        if station not in ordered:
+            ordered.append(station)
+        if len(ordered) >= 2:
+            break
+
+    return ordered
+
+
+def _is_route_question(message: str) -> bool:
+    q = (message or "").lower()
+    return any(phrase in q for phrase in (
+        "how do i go",
+        "how to go",
+        "how to reach",
+        "route from",
+        "route to",
+        "go from",
+        "get from",
+        "directions",
+        "which bus",
+        "which route",
+        "travel from"
+    ))
+
+
+def _route_guidance(origin: str, destination: str, routes_map):
+    routes_with_origin = []
+    routes_with_dest = []
+
+    for route_id, route_data in routes_map.items():
+        stops = route_data["stops"]
+        origin_idx = next((i for i, s in enumerate(stops) if s.lower() == origin.lower()), -1)
+        dest_idx = next((i for i, s in enumerate(stops) if s.lower() == destination.lower()), -1)
+        if origin_idx != -1:
+            routes_with_origin.append({"route_id": route_id, "index": origin_idx})
+        if dest_idx != -1:
+            routes_with_dest.append({"route_id": route_id, "index": dest_idx})
+
+    for origin_route in routes_with_origin:
+        for dest_route in routes_with_dest:
+            if origin_route["route_id"] == dest_route["route_id"]:
+                return (
+                    f"Take Route {origin_route['route_id']} from {origin} to {destination}."
+                )
+
+    best = None
+    for origin_route in routes_with_origin:
+        origin_stops = routes_map[origin_route["route_id"]]["stops"]
+        for dest_route in routes_with_dest:
+            if origin_route["route_id"] == dest_route["route_id"]:
+                continue
+            dest_stops = routes_map[dest_route["route_id"]]["stops"]
+            common = [s for s in origin_stops if s in dest_stops and s not in (origin, destination)]
+            if not common:
+                continue
+            for transfer in common:
+                score = abs(origin_route["index"] - origin_stops.index(transfer)) + abs(dest_route["index"] - dest_stops.index(transfer))
+                if best is None or score < best["score"]:
+                    best = {
+                        "score": score,
+                        "transfer": transfer,
+                        "route_1": origin_route["route_id"],
+                        "route_2": dest_route["route_id"]
+                    }
+
+    if best:
+        return (
+            f"Take Route {best['route_1']} from {origin} to {best['transfer']}, "
+            f"then transfer to Route {best['route_2']} and continue to {destination}."
+        )
+
+    best_double = None
+    for origin_route in routes_with_origin:
+        origin_stops = routes_map[origin_route["route_id"]]["stops"]
+        for mid_route_id, mid_route in routes_map.items():
+            if mid_route_id == origin_route["route_id"]:
+                continue
+            mid_stops = mid_route["stops"]
+            common_1 = [s for s in origin_stops if s in mid_stops and s not in (origin, destination)]
+            if not common_1:
+                continue
+            for dest_route in routes_with_dest:
+                if dest_route["route_id"] in (origin_route["route_id"], mid_route_id):
+                    continue
+                dest_stops = routes_map[dest_route["route_id"]]["stops"]
+                common_2 = [s for s in mid_stops if s in dest_stops and s not in (origin, destination)]
+                if not common_2:
+                    continue
+                for transfer_1 in common_1:
+                    for transfer_2 in common_2:
+                        score = (
+                            abs(origin_route["index"] - origin_stops.index(transfer_1)) +
+                            abs(mid_stops.index(transfer_1) - mid_stops.index(transfer_2)) +
+                            abs(dest_route["index"] - dest_stops.index(transfer_2))
+                        )
+                        if best_double is None or score < best_double["score"]:
+                            best_double = {
+                                "score": score,
+                                "transfer_1": transfer_1,
+                                "transfer_2": transfer_2,
+                                "route_1": origin_route["route_id"],
+                                "route_2": mid_route_id,
+                                "route_3": dest_route["route_id"]
+                            }
+
+    if best_double:
+        return (
+            f"Take Route {best_double['route_1']} from {origin} to {best_double['transfer_1']}, "
+            f"transfer to Route {best_double['route_2']} to {best_double['transfer_2']}, "
+            f"then Route {best_double['route_3']} to {destination}."
+        )
+
+    return ""
+
+
+def _estimate_distance_from_stations(origin: str, destination: str):
+    routes = [
+        ("1", ROUTE_1_STOPS, ROUTE_DISTANCES.get("1")),
+        ("4", ROUTE_4_STOPS, ROUTE_DISTANCES.get("4")),
+        ("7", ROUTE_7_STOPS, ROUTE_DISTANCES.get("7")),
+        ("15", ROUTE_15_STOPS, ROUTE_DISTANCES.get("15")),
+    ]
+    for route_id, stops, total_distance in routes:
+        if not total_distance or not stops:
+            continue
+        resolved_origin = _resolve_station_name(origin, stops)
+        resolved_destination = _resolve_station_name(destination, stops)
+        if not resolved_origin or not resolved_destination:
+            continue
+        if resolved_origin == resolved_destination:
+            return 0.0, route_id
+        try:
+            origin_index = stops.index(resolved_origin)
+            destination_index = stops.index(resolved_destination)
+        except ValueError:
+            continue
+        span = abs(destination_index - origin_index)
+        if len(stops) < 2:
+            continue
+        segment_km = total_distance * (span / (len(stops) - 1))
+        return segment_km, route_id
+    return None, None
+
+
 @app.post("/api/chat")
 def janmarg_ai_chat(request_data: dict):
     """
@@ -1403,6 +1683,43 @@ def janmarg_ai_chat(request_data: dict):
     journey = request_data.get("journey") or {}
     history = request_data.get("history") or []
 
+    routes_map = {
+        '1': {
+            'stops': ROUTE_1_STOPS,
+            'trace': ROUTE_1_FULL_TRACE,
+            'indices': ROUTE_1_INDICES
+        },
+        '15': {
+            'stops': ROUTE_15_STOPS,
+            'trace': ROUTE_15_FULL_TRACE,
+            'indices': ROUTE_15_INDICES
+        },
+        '7': {
+            'stops': ROUTE_7_STOPS,
+            'trace': ROUTE_7_FULL_TRACE,
+            'indices': ROUTE_7_INDICES
+        },
+        '4': {
+            'stops': ROUTE_4_STOPS,
+            'trace': ROUTE_4_FULL_TRACE,
+            'indices': ROUTE_4_INDICES
+        }
+    }
+
+    if (not origin or not destination) and message:
+        extracted = _extract_stations_from_message(message, routes_map)
+        if len(extracted) >= 2:
+            origin = origin or extracted[0]
+            destination = destination or extracted[1]
+
+    if _is_route_question(message) and origin and destination:
+        guidance = _route_guidance(origin, destination, routes_map)
+        if guidance:
+            return {
+                "response": guidance,
+                "timestamp": datetime.now().isoformat()
+            }
+
     user_context = ""
     if origin or destination:
         user_context = f"origin={origin}, destination={destination}"
@@ -1413,6 +1730,12 @@ def janmarg_ai_chat(request_data: dict):
             user_context = f"{user_context}, distance_km={distance}" if user_context else f"distance_km={distance}"
         if route_id:
             user_context = f"{user_context}, route={route_id}" if user_context else f"route={route_id}"
+    else:
+        estimated_distance, estimated_route = _estimate_distance_from_stations(origin, destination)
+        if estimated_distance is not None:
+            user_context = f"{user_context}, distance_km={estimated_distance:.2f}" if user_context else f"distance_km={estimated_distance:.2f}"
+        if estimated_route:
+            user_context = f"{user_context}, route={estimated_route}" if user_context else f"route={estimated_route}"
 
     response = janmarg_brain.ask_llama(
         message,
