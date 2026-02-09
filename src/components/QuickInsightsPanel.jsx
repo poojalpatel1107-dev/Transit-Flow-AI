@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { ArrowRight, MapPin, Ticket, Timer } from 'lucide-react'
 import useJourneyStore from '../store/useJourneyStore'
 import './QuickInsightsPanel.css'
 
@@ -21,12 +22,30 @@ export default function QuickInsightsPanel({ onStartTracking }) {
     }
   ]
 
+  const estimateFare = (distanceKm) => {
+    const km = Number(distanceKm)
+    if (!Number.isFinite(km)) return null
+    if (km < 3) return 5
+    if (km < 5) return 10
+    if (km < 8) return 15
+    if (km < 14) return 20
+    if (km < 20) return 25
+    return 30
+  }
+
+  const fareValue = estimateFare(journey.total_distance_km)
+
   const renderTimetable = () => {
     return (
       <div className="timetable">
         <div className="journey-header">
           <h3>📋 Journey Timetable</h3>
-          <span className="total-time">{journey.eta_minutes} min</span>
+          <div className="journey-meta">
+            {fareValue !== null && (
+              <span className="fare-pill"><Ticket size={14} /> ₹{fareValue}</span>
+            )}
+            <span className="total-time">{journey.eta_minutes} min</span>
+          </div>
         </div>
 
         {segments.map((segment, idx) => (
@@ -39,7 +58,7 @@ export default function QuickInsightsPanel({ onStartTracking }) {
             <div className="segment-details">
               <div className="station-pair">
                 <div className="station start">
-                  <div className="station-icon">🚪</div>
+                  <div className="station-icon"><MapPin size={16} /></div>
                   <div className="station-info">
                     <p className="label">From</p>
                     <p className="station-name">{segment.from_station}</p>
@@ -58,7 +77,7 @@ export default function QuickInsightsPanel({ onStartTracking }) {
                 </div>
 
                 <div className="station end">
-                  <div className="station-icon">📍</div>
+                  <div className="station-icon"><MapPin size={16} /></div>
                   <div className="station-info">
                     <p className="label">To</p>
                     <p className="station-name">{segment.to_station}</p>
@@ -68,7 +87,7 @@ export default function QuickInsightsPanel({ onStartTracking }) {
 
               {idx < segments.length - 1 && (
                 <div className="transfer-indicator">
-                  <span className="transfer-icon">🔄</span>
+                  <span className="transfer-icon"><ArrowRight size={14} /></span>
                   <span className="transfer-text">Transfer to Route {segments[idx + 1].route_id}</span>
                 </div>
               )}

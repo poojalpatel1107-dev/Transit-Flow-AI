@@ -42,12 +42,15 @@ from janmarg_config import (
     get_crowd_level
 )
 from ai_agent import transit_ai
+from ai_engine import JanmargBrain
 
 app = FastAPI(
     title="Transit Flow AI Backend",
     description="Knowledge-driven AI engine for Janmarg BRTS predictions",
     version="2.0.0"
 )
+
+janmarg_brain = JanmargBrain()
 
 # Enable CORS for all origins (allows React frontend to communicate)
 app.add_middleware(
@@ -710,6 +713,72 @@ def _valhalla_route(start_coord, end_coord):
     return None
 
 
+def _valhalla_route_via(path, max_points=16):
+    if not VALHALLA_URL or not path or len(path) < 2:
+        return None
+
+    sampled = _downsample_path(path, max_points=max_points)
+    if len(sampled) < 2:
+        return None
+
+    locations = []
+    for idx, coord in enumerate(sampled):
+        loc_type = "break" if idx in (0, len(sampled) - 1) else "through"
+        locations.append({"lat": coord[0], "lon": coord[1], "type": loc_type})
+
+    base_payload = {
+        "locations": locations,
+        "shape_format": "geojson",
+        "directions_options": {"units": "kilometers"}
+    }
+
+    for costing in ("bus", "auto"):
+        payload = {**base_payload, "costing": costing}
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib_request.Request(
+                VALHALLA_URL,
+                data=data,
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib_request.urlopen(req, timeout=6) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+
+            leg = result.get("trip", {}).get("legs", [])[0]
+            shape = leg.get("shape", {})
+            coords = []
+            if isinstance(shape, dict):
+                coords = shape.get("coordinates", [])
+                if coords:
+                    path_out = [[lat, lon] for lon, lat in coords]
+                else:
+                    path_out = []
+            elif isinstance(shape, str):
+                coords = _decode_polyline(shape, precision=6)
+                if not coords:
+                    coords = _decode_polyline(shape, precision=5)
+                path_out = coords
+            else:
+                path_out = []
+
+            if not path_out:
+                continue
+
+            summary = leg.get("summary", {})
+            distance_km = round(summary.get("length", _path_distance_km(path_out)), 2)
+            eta_minutes = int(round(summary.get("time", 0) / 60))
+
+            return {
+                "path": path_out,
+                "distance_km": distance_km,
+                "eta_minutes": eta_minutes
+            }
+        except (URLError, KeyError, IndexError, ValueError, AttributeError):
+            continue
+
+    return None
+
+
 def _station_coord(route_id, station_name, routes_map):
     route = routes_map.get(route_id)
     if not route:
@@ -743,23 +812,40 @@ def _segment_info(route_id, start_station_idx, end_station_idx, routes_map):
     else:
         base_path = full_trace[end_idx: start_idx + 1][::-1]
 
-    trace_result = _valhalla_trace(base_path)
-    if trace_result and _is_trace_acceptable(trace_result["path"], base_path):
-        path = trace_result["path"]
-        distance_km = trace_result["distance_km"]
-        eta_minutes = trace_result["eta_minutes"]
+    force_base_path = False
+    if route_id == "4":
+        himmat_idx = stops.index("Himmatlal Park")
+        in_range = (start_station_idx <= himmat_idx <= end_station_idx) or (end_station_idx <= himmat_idx <= start_station_idx)
+        force_base_path = in_range
+
+    if force_base_path:
+        path = base_path
+        distance_km = round(_path_distance_km(path), 2)
+        eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60))
     else:
-        start_coord = _station_coord(route_id, start_station, routes_map) or base_path[0]
-        end_coord = _station_coord(route_id, end_station, routes_map) or base_path[-1]
-        route_result = _valhalla_route(start_coord, end_coord)
-        if route_result and _is_trace_acceptable(route_result["path"], base_path, max_mean_deviation_km=0.45):
-            path = route_result["path"]
-            distance_km = route_result["distance_km"]
-            eta_minutes = route_result["eta_minutes"]
+        trace_result = _valhalla_trace(base_path)
+        if trace_result and _is_trace_acceptable(trace_result["path"], base_path):
+            path = trace_result["path"]
+            distance_km = trace_result["distance_km"]
+            eta_minutes = trace_result["eta_minutes"]
         else:
-            path = base_path
-            distance_km = round(_path_distance_km(path), 2)
-            eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60))
+            via_result = _valhalla_route_via(base_path, max_points=18)
+            if via_result and _is_trace_acceptable(via_result["path"], base_path, max_mean_deviation_km=0.55):
+                path = via_result["path"]
+                distance_km = via_result["distance_km"]
+                eta_minutes = via_result["eta_minutes"]
+            else:
+                start_coord = _station_coord(route_id, start_station, routes_map) or base_path[0]
+                end_coord = _station_coord(route_id, end_station, routes_map) or base_path[-1]
+                route_result = _valhalla_route(start_coord, end_coord)
+                if route_result and _is_trace_acceptable(route_result["path"], base_path, max_mean_deviation_km=0.55):
+                    path = route_result["path"]
+                    distance_km = route_result["distance_km"]
+                    eta_minutes = route_result["eta_minutes"]
+                else:
+                    path = base_path
+                    distance_km = round(_path_distance_km(path), 2)
+                    eta_minutes = int(round((distance_km / COMMERCIAL_SPEED_KMH) * 60))
 
     station_count = abs(end_station_idx - start_station_idx) + 1
     if eta_minutes <= 0:
@@ -1301,6 +1387,42 @@ def smart_recommendations(request_data: dict):
     journey = request_data.get("journey")
     
     return transit_ai.get_smart_recommendations(origin, destination, journey)
+
+
+@app.post("/api/chat")
+def janmarg_ai_chat(request_data: dict):
+    """
+    RAG-powered chat endpoint using the World Bank GEF report.
+    """
+    message = (request_data.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    origin = (request_data.get("origin") or "").strip()
+    destination = (request_data.get("destination") or "").strip()
+    journey = request_data.get("journey") or {}
+    history = request_data.get("history") or []
+
+    user_context = ""
+    if origin or destination:
+        user_context = f"origin={origin}, destination={destination}"
+    if journey:
+        distance = journey.get("total_distance_km")
+        route_id = journey.get("route_id") or journey.get("route_1")
+        if distance is not None:
+            user_context = f"{user_context}, distance_km={distance}" if user_context else f"distance_km={distance}"
+        if route_id:
+            user_context = f"{user_context}, route={route_id}" if user_context else f"route={route_id}"
+
+    response = janmarg_brain.ask_llama(
+        message,
+        user_context=user_context or None,
+        history=history
+    )
+    return {
+        "response": response,
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.post("/api/janmarg-chat")

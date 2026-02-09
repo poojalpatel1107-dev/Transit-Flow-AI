@@ -6,7 +6,7 @@ import QuickInsightsPanel from './components/QuickInsightsPanel'
 import LiveProgressTracker from './components/LiveProgressTracker'
 import NearestBusDetector from './components/NearestBusDetector'
 import AIRecommendations from './components/AIRecommendations'
-import JanmargChat from './components/JanmargChat'
+import AIChatWindow from './components/AIChatWindow'
 import useJourneyStore from './store/useJourneyStore'
 import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS, ROUTE_4_STATIONS } from './RouteCoordinates'
 
@@ -221,13 +221,7 @@ export default function AppEnhanced() {
     reset()
   }
 
-  useEffect(() => {
-    if (journey && !isTracking) {
-      setRightTab('insights')
-    } else if (!journey) {
-      setRightTab('nearest')
-    }
-  }, [journey, isTracking])
+
 
   return (
     <div className="app-enhanced">
@@ -299,7 +293,6 @@ export default function AppEnhanced() {
               <button
                 className={`right-tab ${rightTab === 'ai' ? 'active' : ''}`}
                 onClick={() => setRightTab('ai')}
-                disabled={!journey || isTracking}
               >
                 🤖 AI
               </button>
@@ -307,7 +300,7 @@ export default function AppEnhanced() {
                 className={`right-tab ${rightTab === 'chat' ? 'active' : ''}`}
                 onClick={() => setRightTab('chat')}
               >
-                💬 Chat
+                💬 Ask AI
               </button>
               <button
                 className={`right-tab ${rightTab === 'nearest' ? 'active' : ''}`}
@@ -331,8 +324,14 @@ export default function AppEnhanced() {
                 />
               )}
 
+              {rightTab === 'ai' && !journey && !isTracking && (
+                <div className="right-panel-placeholder">
+                  Select a route to see AI recommendations.
+                </div>
+              )}
+
               {rightTab === 'chat' && !isTracking && (
-                <JanmargChat />
+                <AIChatWindow embedded={true} />
               )}
 
               {rightTab === 'nearest' && (
