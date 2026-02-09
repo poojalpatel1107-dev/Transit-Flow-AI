@@ -5,22 +5,11 @@
   padding: 14px;
   height: 100%;
   overflow-y: auto;
-  animation: slideUp 0.3s ease-out;
   backdrop-filter: blur(14px);
   border: 1px solid var(--border);
   color: var(--text);
 }
 
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 
 .recs-header {
   display: flex;
@@ -75,7 +64,6 @@
   background: rgba(2, 6, 23, 0.7);
   padding: 14px;
   border-radius: 14px;
-  transition: all 0.3s ease;
   border: 1px solid var(--border);
 }
 
@@ -99,10 +87,6 @@
   background: rgba(2, 6, 23, 0.7);
 }
 
-.rec-card:hover {
-  transform: translateX(4px);
-  box-shadow: 0 10px 18px rgba(59, 130, 246, 0.25);
-}
 
 .rec-priority {
   display: flex;

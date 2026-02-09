@@ -23,6 +23,7 @@ export default function AppEnhanced() {
   const [userLocation, setUserLocation] = useState([23.027159, 72.508525]) // Default: ISKCON area
   const [isLoadingRoute, setIsLoadingRoute] = useState(false)
   const [rightTab, setRightTab] = useState('nearest')
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
   const [currentTime, setCurrentTime] = useState('')
   const [isBusServiceActive, setIsBusServiceActive] = useState(true)
 
@@ -230,6 +231,11 @@ export default function AppEnhanced() {
 
   return (
     <div className="app-enhanced">
+      {!isTracking && (
+        <div className="app-map-layer" aria-hidden="true">
+          <MapWithRouteHighlight />
+        </div>
+      )}
       {/* Header */}
       <div className="app-header">
         <div className="logo-section">
@@ -257,10 +263,10 @@ export default function AppEnhanced() {
         </div>
 
         {/* Main Content - Split View */}
-        <div className={`content-wrapper ${isTracking ? 'tracking-mode' : ''}`}>
+        <div className={`content-wrapper ${isTracking ? 'tracking-mode' : 'overlay-mode'}`}>
           {/* Left: Map and Tracking */}
-          <div className="left-panel">
-            {isTracking ? (
+          {isTracking && (
+            <div className="left-panel">
               <div className="tracking-layout">
                 <div className="tracking-map">
                   <MapWithRouteHighlight />
@@ -269,14 +275,19 @@ export default function AppEnhanced() {
                   <LiveProgressTracker onComplete={handleCompleteJourney} />
                 </div>
               </div>
-            ) : (
-              <MapWithRouteHighlight />
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Right: Quick Insights and Recommendations */}
           {!isTracking && (
-            <div className="right-panel">
+            <div className={`right-panel ${isRightPanelOpen ? '' : 'collapsed'}`}>
+            <button
+              className="panel-toggle"
+              type="button"
+              aria-label={isRightPanelOpen ? 'Collapse panel' : 'Expand panel'}
+              data-open={isRightPanelOpen}
+              onClick={() => setIsRightPanelOpen((prev) => !prev)}
+            />
             <div className="right-tabs">
               <button
                 className={`right-tab ${rightTab === 'insights' ? 'active' : ''}`}
@@ -306,7 +317,8 @@ export default function AppEnhanced() {
               </button>
             </div>
 
-            <div className="right-panel-content">
+            {isRightPanelOpen && (
+              <div className="right-panel-content">
               {rightTab === 'insights' && journey && !isTracking && (
                 <QuickInsightsPanel onStartTracking={handleStartTracking} />
               )}
@@ -326,7 +338,8 @@ export default function AppEnhanced() {
               {rightTab === 'nearest' && (
                 <NearestBusDetector userLocation={userLocation} />
               )}
-            </div>
+              </div>
+            )}
             </div>
           )}
         </div>
