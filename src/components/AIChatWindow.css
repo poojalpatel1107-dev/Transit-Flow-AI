@@ -68,7 +68,7 @@
 
 .ai-chat-body {
   flex: 1;
-  padding: 20px 18px;
+  padding: 20px 18px 80px; /* Added extra bottom padding to avoid input overlap */
   overflow-y: auto;
   display: flex;
   flex-direction: column;

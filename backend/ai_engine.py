@@ -57,14 +57,22 @@ class JanmargBrain:
         if not self.pdf_path or not os.path.exists(self.pdf_path):
             return ""
         try:
+            # Add a small timeout-like protection by only reading first few pages if it's huge
+            # and wrapping in a very broad try-except
             reader = PdfReader(self.pdf_path)
             pages_text = []
-            for page in reader.pages:
-                text = page.extract_text() or ""
-                if text.strip():
-                    pages_text.append(text)
+            max_pages = min(len(reader.pages), 10) # Limit to 10 pages for speed
+            for i in range(max_pages):
+                try:
+                    page = reader.pages[i]
+                    text = page.extract_text() or ""
+                    if text.strip():
+                        pages_text.append(text)
+                except Exception:
+                    continue
             return "\n".join(pages_text)
-        except Exception:
+        except Exception as e:
+            print(f"Warning: Could not read PDF {self.pdf_path}: {e}")
             return ""
 
     def _extract_key_sentences(self, text):
@@ -104,18 +112,30 @@ class JanmargBrain:
 
     def _fallback_answer(self, query, user_context=None):
         if self._is_fare_question(query):
-            distance_km = self._extract_distance_from_context(user_context or "")
+            context_str = user_context or ""
+            distance_km = self._extract_distance_from_context(context_str)
+            
+            # If we don't have distance but have origin/dest, we should have distance in context string
+            # if server.py calculated it correctly. Let's make sure we try our best.
             fare = self._estimate_fare(distance_km)
+            
             if fare is not None:
                 return (
-                    f"Estimated fare: Rs {fare} for about {distance_km:.1f} km. "
-                    "Fare bands: <3=5, 3-5=10, 5-8=15, 8-14=20, 14-20=25, >20=30."
+                    f"The estimated fare for your journey is Rs {fare} (approx {distance_km:.1f} km). "
+                    "Janmarg fare bands: 1-3km=Rs 5, 3-5km=Rs 10, 5-8km=Rs 15, 8-14km=Rs 20, 14-20km=Rs 25, >20km=Rs 30."
                 )
+            
+            return (
+                "Based on Janmarg's official fare policy, tickets start at Rs 5 (up to 3km) "
+                "and go up to Rs 30 (for journeys over 20km). "
+                "To get exact pricing, please select your origin and destination in the search bar."
+            )
 
         return (
-            "I can answer fares, routes, and operating hours. "
-            "Ask like: 'fare from ISKCON to VGEC' or 'route from LD to VGEC'."
+            "I am the Janmarg AI. I can help you with fares, route guidance, and operating hours. "
+            "Try asking: 'What is the fare from ISKCON to VGEC?' or 'How do I go from LD to Airport?'"
         )
+
 
     def ask_llama(self, user_query, user_context=None, history=None):
         query = (user_query or "").strip()
