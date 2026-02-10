@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, Popup, Circle, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import useJourneyStore from '../store/useJourneyStore'
@@ -32,9 +32,7 @@ const endIcon = createMarkerIcon('#FF6B6B',
 const transferIcon = createMarkerIcon('#FFC107',
   '<path d="M4 4h8L10 2m2 2-2 2M14 14H6l2-2m-2 2 2 2" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
 )
-const busIcon = createMarkerIcon('#2196F3',
-  '<rect x="2" y="3" width="14" height="9" rx="2" ry="2" stroke="white" stroke-width="2" fill="none"/><circle cx="5" cy="15" r="2" fill="white"/><circle cx="13" cy="15" r="2" fill="white"/><path d="M2 7h14" stroke="white" stroke-width="2"/>'
-)
+const busSvg = '<rect x="2" y="3" width="14" height="9" rx="2" ry="2" stroke="white" stroke-width="2" fill="none"/><circle cx="5" cy="15" r="2" fill="white"/><circle cx="13" cy="15" r="2" fill="white"/><path d="M2 7h14" stroke="white" stroke-width="2"/>'
 
 const STATION_COORDS_MAP = new Map(
   [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS, ...ROUTE_4_STATIONS].map(station => [
@@ -169,11 +167,31 @@ const trimPathToStations = (path, originName, destinationName) => {
 
 export default function MapWithRouteHighlight() {
   const { journey, currentBusLocation, transferStations } = useJourneyStore()
+  const currentSegmentIndex = useJourneyStore(state => state.currentSegmentIndex)
   const [mapCenter, setMapCenter] = useState([23.03, 72.53])
   const [mapZoom, setMapZoom] = useState(13)
   const [routePath, setRoutePath] = useState([])
   const [autoFollow, setAutoFollow] = useState(true)
   const [autoFit, setAutoFit] = useState(true)
+
+  const getRouteColor = (routeId) => {
+    const key = String(routeId || '')
+    switch (key) {
+      case '1':
+        return '#ef4444'
+      case '4':
+        return '#f97316'
+      case '7':
+        return '#8b5cf6'
+      case '15':
+        return '#06b6d4'
+      default:
+        return '#2196F3'
+    }
+  }
+
+  const currentRouteId = journey?.segments?.[currentSegmentIndex]?.route_id || journey?.route_id || journey?.route_1
+  const busIcon = useMemo(() => createMarkerIcon(getRouteColor(currentRouteId), busSvg), [currentRouteId])
 
   // Calculate map center and route path from journey
   useEffect(() => {
@@ -207,6 +225,15 @@ export default function MapWithRouteHighlight() {
     const map = useMap()
 
     useEffect(() => {
+      map.dragging.enable()
+      map.scrollWheelZoom.enable()
+      map.doubleClickZoom.enable()
+      map.touchZoom.enable()
+      map.boxZoom.enable()
+      map.keyboard.enable()
+    }, [map])
+
+    useEffect(() => {
       if (autoFit && routePath && routePath.length > 1) {
         const bounds = L.latLngBounds(routePath)
         map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 })
@@ -225,10 +252,14 @@ export default function MapWithRouteHighlight() {
         setAutoFit(false)
       }
       map.on('dragstart', handleUserMove)
+      map.on('mousedown', handleUserMove)
+      map.on('touchstart', handleUserMove)
       map.on('zoomstart', handleUserMove)
       map.on('movestart', handleUserMove)
       return () => {
         map.off('dragstart', handleUserMove)
+        map.off('mousedown', handleUserMove)
+        map.off('touchstart', handleUserMove)
         map.off('zoomstart', handleUserMove)
         map.off('movestart', handleUserMove)
       }
@@ -250,6 +281,7 @@ export default function MapWithRouteHighlight() {
         zoomControl={true}
         minZoom={10}
         maxZoom={19}
+        boxZoom={true}
         style={{ width: '100%', height: '100%' }}
       >
         <MapViewUpdater />

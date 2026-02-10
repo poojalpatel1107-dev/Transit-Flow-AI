@@ -43,6 +43,7 @@ const useJourneyStore = create((set, get) => ({
   updateBusLocation: (lat, lng) => set({ currentBusLocation: [lat, lng] }),
   updateEstimatedArrival: (minutes) => set({ estimatedArrival: minutes }),
   updateCurrentPosition: (stationIndex) => set({ currentStationIndex: stationIndex }),
+  setCurrentSegmentIndex: (segmentIndex) => set({ currentSegmentIndex: segmentIndex }),
 
   setTransferStations: (transfers) => set({ transferStations: transfers }),
   updateNextTransfer: (stationName, minutesUntil) => set({ 

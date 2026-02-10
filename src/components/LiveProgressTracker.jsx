@@ -1,7 +1,47 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Bus, DoorOpen, MapPin, Sparkles, Timer, Users } from 'lucide-react'
 import useJourneyStore from '../store/useJourneyStore'
+import {
+  STATIONS,
+  ROUTE_15_STATIONS,
+  ROUTE_7_STATIONS,
+  ROUTE_4_STATIONS,
+  REAL_ROUTE_1,
+  ROUTE_15_COORDINATES,
+  ROUTE_7_COORDINATES,
+  ROUTE_4_COORDINATES
+} from '../RouteCoordinates'
 import './LiveProgressTracker.css'
+
+const normalizeStationName = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+
+const STATION_COORDS_MAP = new Map(
+  [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS, ...ROUTE_4_STATIONS].map(station => [
+    station.name,
+    station.coords
+  ])
+)
+
+const STATION_COORDS_NORMALIZED_MAP = new Map(
+  [...STATIONS, ...ROUTE_15_STATIONS, ...ROUTE_7_STATIONS, ...ROUTE_4_STATIONS].map(station => [
+    normalizeStationName(station.name),
+    station.coords
+  ])
+)
+
+const getStationCoords = (name) =>
+  STATION_COORDS_MAP.get(name) || STATION_COORDS_NORMALIZED_MAP.get(normalizeStationName(name))
+
+const ROUTE_PATHS = {
+  '1': REAL_ROUTE_1,
+  '15': ROUTE_15_COORDINATES,
+  '7': ROUTE_7_COORDINATES,
+  '4': ROUTE_4_COORDINATES
+}
 
 export default function LiveProgressTracker({ onComplete }) {
   const journey = useJourneyStore(state => state.journey)
@@ -10,22 +50,30 @@ export default function LiveProgressTracker({ onComplete }) {
   
   const updateBusLocation = useJourneyStore(state => state.updateBusLocation)
   const updateCurrentPosition = useJourneyStore(state => state.updateCurrentPosition)
+  const setCurrentSegmentIndex = useJourneyStore(state => state.setCurrentSegmentIndex)
 
   const approachDurationSec = 3
+  const approachOffsetMeters = 40
 
-  const segments = journey?.segments || (journey ? [
-    {
-      route_id: journey.route_id,
-      from_station: journey.origin,
-      to_station: journey.destination,
-      duration_minutes: journey.eta_minutes,
-      distance_km: journey.total_distance_km
-    }
-  ] : [])
+  const segments = useMemo(() => {
+    if (journey?.segments?.length) return journey.segments
+    if (!journey) return []
+    return [
+      {
+        route_id: journey.route_id,
+        from_station: journey.origin,
+        to_station: journey.destination,
+        duration_minutes: journey.eta_minutes,
+        distance_km: journey.total_distance_km
+      }
+    ]
+  }, [journey])
 
-  const segmentDurations = segments.map(seg =>
-    Number(seg.duration_minutes ?? (journey?.eta_minutes / Math.max(1, segments.length))) || 0
-  )
+  const segmentDurations = useMemo(() => (
+    segments.map(seg =>
+      Number(seg.duration_minutes ?? (journey?.eta_minutes / Math.max(1, segments.length))) || 0
+    )
+  ), [segments, journey])
 
   const totalMinutes = Math.max(
     1,
@@ -55,6 +103,71 @@ export default function LiveProgressTracker({ onComplete }) {
       Math.sin(dLon / 2) * Math.sin(dLon / 2)
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     return R * c
+  }
+
+  const normalizePath = (rawPath) => {
+    if (!Array.isArray(rawPath)) return []
+    return rawPath
+      .map((point) => {
+        if (Array.isArray(point) && point.length >= 2) {
+          const lat = Number(point[0])
+          const lng = Number(point[1])
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            return [lat, lng]
+          }
+        }
+        if (point && typeof point === 'object') {
+          const lat = Number(point.lat ?? point.latitude)
+          const lng = Number(point.lng ?? point.lon ?? point.longitude)
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            return [lat, lng]
+          }
+        }
+        return null
+      })
+      .filter(Boolean)
+  }
+
+  const normalizeRouteId = (value) => {
+    const raw = String(value ?? '').trim()
+    const match = raw.match(/\d+/)
+    return match ? match[0] : raw
+  }
+
+  const getRouteFallbackPath = (routeId, originName) => {
+    const normalizedRouteId = normalizeRouteId(routeId)
+    const base = ROUTE_PATHS[normalizedRouteId]
+    if (!Array.isArray(base) || base.length < 2) return []
+
+    let path = normalizePath(base)
+    if (path.length < 2) return []
+
+    const originCoord = getStationCoords(originName)
+    if (originCoord) {
+      const start = path[0]
+      const end = path[path.length - 1]
+      const distStart = getDistanceFromLatLonInKm(originCoord[0], originCoord[1], start[0], start[1])
+      const distEnd = getDistanceFromLatLonInKm(originCoord[0], originCoord[1], end[0], end[1])
+      if (distEnd < distStart) {
+        path = path.slice().reverse()
+      }
+    }
+
+    return path
+  }
+
+  const buildInterpolatedPath = (startCoord, endCoord, steps = 24) => {
+    if (!startCoord || !endCoord) return []
+    const safeSteps = Math.max(2, steps)
+    const path = []
+    for (let i = 0; i <= safeSteps; i += 1) {
+      const t = i / safeSteps
+      path.push([
+        startCoord[0] + (endCoord[0] - startCoord[0]) * t,
+        startCoord[1] + (endCoord[1] - startCoord[1]) * t
+      ])
+    }
+    return path
   }
 
   useEffect(() => {
@@ -103,23 +216,110 @@ export default function LiveProgressTracker({ onComplete }) {
     }
   }
 
+  const getApproachCoord = (path, offsetMeters) => {
+    if (!path || path.length < 2) return null
+    const start = path[0]
+    const next = path[1]
+    const segmentMeters = Math.max(1, getDistanceFromLatLonInKm(start[0], start[1], next[0], next[1]) * 1000)
+    const t = Math.min(0.5, offsetMeters / segmentMeters)
+    return [
+      start[0] + (start[0] - next[0]) * t,
+      start[1] + (start[1] - next[1]) * t
+    ]
+  }
+
+  const findClosestIndex = (path, coord) => {
+    let bestIdx = 0
+    let bestDist = Number.MAX_VALUE
+    for (let i = 0; i < path.length; i += 1) {
+      const point = path[i]
+      const dist = getDistanceFromLatLonInKm(coord[0], coord[1], point[0], point[1])
+      if (dist < bestDist) {
+        bestDist = dist
+        bestIdx = i
+      }
+    }
+    return bestIdx
+  }
+
+  const buildSegmentPathsFromJourneyPath = (path, segmentsList) => {
+    if (!path || path.length < 2 || !segmentsList || segmentsList.length === 0) return []
+    if (segmentsList.length === 1) return [path]
+
+    const cutIndices = []
+    for (let i = 0; i < segmentsList.length - 1; i += 1) {
+      const endCoord = getStationCoords(segmentsList[i].to_station)
+      if (!endCoord) return []
+      cutIndices.push(findClosestIndex(path, endCoord))
+    }
+
+    const slices = []
+    let startIdx = 0
+    for (let i = 0; i < cutIndices.length; i += 1) {
+      let endIdx = cutIndices[i]
+      if (endIdx <= startIdx && startIdx < path.length - 1) {
+        endIdx = startIdx + 1
+      }
+      slices.push(path.slice(startIdx, endIdx + 1))
+      startIdx = endIdx
+    }
+    if (startIdx < path.length - 1) {
+      slices.push(path.slice(startIdx))
+    }
+
+    return slices.length === segmentsList.length ? slices : []
+  }
+
+  const isSparsePath = (candidate) => {
+    if (!candidate || candidate.length < 2) return true
+    const summary = buildDistanceTable(candidate)
+    return !Number.isFinite(summary.total) || summary.total < 120 || candidate.length < 6
+  }
+
+  const buildSegmentPath = (segment) => {
+    let path = normalizePath(segment?.path || [])
+    if (isSparsePath(path)) {
+      const fallback = getRouteFallbackPath(segment?.route_id, segment?.from_station)
+      if (fallback.length >= 2) {
+        path = fallback
+      }
+    }
+
+    if (isSparsePath(path)) {
+      const originCoord = getStationCoords(segment?.from_station)
+      const destinationCoord = getStationCoords(segment?.to_station)
+      if (originCoord && destinationCoord) {
+        path = buildInterpolatedPath(originCoord, destinationCoord, 26)
+      }
+    }
+
+    return path
+  }
+
   // Simulate real-time bus movement (dynamic, Uber-like)
   useEffect(() => {
-    if (!isTracking || !journey || !journey.path || journey.path.length === 0) return
+    if (!isTracking || !journey) return
 
-    distanceTableRef.current = buildDistanceTable(journey.path)
-    const totalDistance = distanceTableRef.current.total
-    if (!totalDistance) return
+    const journeyPath = normalizePath(journey.path || [])
+    let segmentPaths = buildSegmentPathsFromJourneyPath(journeyPath, segments)
+    if (segmentPaths.length === 0 || segmentPaths.some(p => p.length < 2)) {
+      segmentPaths = segments.map(buildSegmentPath)
+    }
+    if ((segmentPaths.length === 0 || segmentPaths.every(p => p.length < 2)) && journeyPath.length >= 2) {
+      segmentPaths = [journeyPath]
+    }
+    if (segmentPaths.length === 0 || segmentPaths.every(p => p.length < 2)) return
 
-    const baseSpeedMps = Math.max(28, totalDistance / Math.max(1, totalSeconds))
+    const segmentTables = segmentPaths.map(path => buildDistanceTable(path))
+    const segmentDurationsSec = segmentDurations.map(d => Math.max(1, Math.round(d * 60)))
+    const totalDurationSec = Math.max(1, segmentDurationsSec.reduce((sum, d) => sum + d, 0))
+    const baseSpeedMps = 22
     const approachDurationMs = approachDurationSec * 1000
 
-    distanceTravelledRef.current = 0
-    speedMultiplierRef.current = 1
-    lastSpeedUpdateRef.current = 0
     startTimeRef.current = null
     lastFrameRef.current = null
     lastUiUpdateRef.current = 0
+    let lastSegmentIndex = -1
 
     const animate = (now) => {
       if (!startTimeRef.current) {
@@ -134,52 +334,90 @@ export default function LiveProgressTracker({ onComplete }) {
       const approachRemaining = Math.max(0, approachDurationMs - elapsedMs)
 
       if (approachRemaining > 0) {
-        const startCoord = journey.path[0]
-        updateBusLocation(startCoord[0], startCoord[1])
+        const firstPath = segmentPaths[0] || []
+        const approachCoord = getApproachCoord(firstPath, approachOffsetMeters) || firstPath[0]
+        updateBusLocation(approachCoord[0], approachCoord[1])
         updateCurrentPosition(0)
+        if (lastSegmentIndex !== 0) {
+          lastSegmentIndex = 0
+          setCurrentSegmentIndex(0)
+        }
         if (now - lastUiUpdateRef.current > 250) {
           setApproachRemainingSec(Math.ceil(approachRemaining / 1000))
-          setTimeRemainingSec(totalSeconds)
+          setTimeRemainingSec(totalDurationSec)
           lastUiUpdateRef.current = now
         }
         animationRef.current = requestAnimationFrame(animate)
         return
       }
 
-      if (!lastSpeedUpdateRef.current || now - lastSpeedUpdateRef.current > 2200) {
-        speedMultiplierRef.current = 1.25 + Math.random() * 0.9
-        lastSpeedUpdateRef.current = now
+      const elapsedJourneySec = Math.max(0, (now - startTimeRef.current - approachDurationMs) / 1000)
+      let remaining = elapsedJourneySec
+      let segmentIndex = 0
+      let segmentElapsedSec = 0
+      for (let i = 0; i < segmentDurationsSec.length; i += 1) {
+        const segSec = segmentDurationsSec[i]
+        if (remaining < segSec) {
+          segmentIndex = i
+          segmentElapsedSec = remaining
+          break
+        }
+        remaining -= segSec
+        segmentIndex = i + 1
+        segmentElapsedSec = segSec
       }
 
-      const speedMps = baseSpeedMps * speedMultiplierRef.current
-      distanceTravelledRef.current = Math.min(
-        totalDistance,
-        distanceTravelledRef.current + speedMps * deltaSec
-      )
+      if (segmentIndex >= segmentPaths.length) {
+        setTimeRemainingSec(0)
+        onComplete?.()
+        return
+      }
 
-      const { coord, index } = getCoordAtDistance(
-        journey.path,
-        distanceTableRef.current.cumulative,
-        distanceTravelledRef.current
-      )
+      const currentPath = segmentPaths[segmentIndex]
+      const currentTable = segmentTables[segmentIndex]
+      const segSec = segmentDurationsSec[segmentIndex]
+      const segProgress = Math.min(1, segmentElapsedSec / Math.max(1, segSec))
+      const segDistance = currentTable.total
+      const hasValidDistance = Number.isFinite(segDistance) && segDistance > 0
+
+      let coord = null
+      let index = 0
+
+      if (hasValidDistance) {
+        const distance = Math.min(segDistance, segDistance * segProgress)
+        const result = getCoordAtDistance(currentPath, currentTable.cumulative, distance)
+        if (result) {
+          coord = result.coord
+          index = result.index
+        }
+      } else if (currentPath.length >= 2) {
+        const idxFloat = segProgress * (currentPath.length - 1)
+        index = Math.min(currentPath.length - 1, Math.floor(idxFloat))
+        const nextIndex = Math.min(currentPath.length - 1, index + 1)
+        const t = idxFloat - index
+        const start = currentPath[index]
+        const end = currentPath[nextIndex]
+        coord = [
+          start[0] + (end[0] - start[0]) * t,
+          start[1] + (end[1] - start[1]) * t
+        ]
+      }
 
       if (coord) {
         updateBusLocation(coord[0], coord[1])
         updateCurrentPosition(index)
       }
 
+      if (lastSegmentIndex !== segmentIndex) {
+        lastSegmentIndex = segmentIndex
+        setCurrentSegmentIndex(segmentIndex)
+      }
+
       if (now - lastUiUpdateRef.current > 250) {
-        const remainingDistance = Math.max(0, totalDistance - distanceTravelledRef.current)
-        const remainingSec = Math.ceil(remainingDistance / Math.max(1, speedMps))
+        const remainingSec = Math.max(0, Math.ceil(totalDurationSec - elapsedJourneySec))
         setApproachRemainingSec(0)
         setTimeRemainingSec(remainingSec)
         lastUiUpdateRef.current = now
-      }
-
-      if (distanceTravelledRef.current >= totalDistance) {
-        setTimeRemainingSec(0)
-        onComplete?.()
-        return
       }
 
       animationRef.current = requestAnimationFrame(animate)
@@ -191,7 +429,7 @@ export default function LiveProgressTracker({ onComplete }) {
         cancelAnimationFrame(animationRef.current)
       }
     }
-  }, [isTracking, journey, totalSeconds, approachDurationSec, onComplete, updateBusLocation, updateCurrentPosition])
+  }, [isTracking, journey, segments, segmentDurations, totalSeconds, approachDurationSec, onComplete, updateBusLocation, updateCurrentPosition, setCurrentSegmentIndex])
 
   if (!isTracking || !journey) {
     return null
@@ -223,7 +461,10 @@ export default function LiveProgressTracker({ onComplete }) {
     currentSegment.distance_km ?? (journey.total_distance_km / Math.max(1, segments.length))
   )
   const safeSegmentDistance = Number.isFinite(segmentDistance) ? segmentDistance : 0
-  const progressPercent = Math.min(100, (elapsedSec / totalSeconds) * 100)
+  const currentSegSeconds = Math.max(1, Math.round((segmentDurations[currentSegmentIndex] || 0) * 60))
+  const progressPercent = isApproaching
+    ? 0
+    : Math.min(100, ((currentSegSeconds - timeToNextTransferSec) / currentSegSeconds) * 100)
   const timeRemainingMin = Math.max(0, Math.ceil(timeRemainingSec / 60))
   const approachRemainingMin = Math.max(1, Math.ceil(approachRemainingSec / 60))
 
@@ -258,7 +499,7 @@ export default function LiveProgressTracker({ onComplete }) {
             />
           </div>
           <span className="progress-label">
-            {isApproaching ? 'Waiting for arrival' : `${Math.min(Math.round(progressPercent), 100)}% complete`}
+            {isApproaching ? 'Waiting for arrival' : `Leg ${currentSegmentIndex + 1} • ${Math.min(Math.round(progressPercent), 100)}% complete`}
           </span>
         </div>
       </div>

@@ -8,6 +8,12 @@
     #0b1222;
 }
 
+.map-container-highlight,
+.map-container-highlight .leaflet-container {
+  pointer-events: auto;
+  touch-action: auto;
+}
+
 .map-placeholder {
   width: 100%;
   height: 100%;

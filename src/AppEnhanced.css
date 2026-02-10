@@ -445,6 +445,7 @@
   height: 100%;
   padding: 12px;
   min-height: 0;
+  pointer-events: auto;
 }
 
 .tracking-map {
@@ -454,6 +455,7 @@
   background: rgba(2, 6, 23, 0.6);
   backdrop-filter: blur(14px);
   border: 1px solid var(--border);
+  pointer-events: auto;
 }
 
 .tracking-panel {
@@ -465,6 +467,7 @@
   backdrop-filter: blur(14px);
   border: 1px solid var(--border);
   padding: 10px;
+  pointer-events: auto;
 }
 
 .app-footer {

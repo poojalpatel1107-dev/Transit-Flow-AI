@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import './AppEnhanced.css'
 import SearchBar from './components/SearchBar'
 import MapWithRouteHighlight from './components/MapWithRouteHighlight'
@@ -221,11 +221,11 @@ export default function AppEnhanced() {
     startTracking()
   }
 
-  const handleCompleteJourney = () => {
+  const handleCompleteJourney = useCallback(() => {
     stopTracking()
     alert('🎉 Journey complete! Thanks for using Transit Flow AI')
     reset()
-  }
+  }, [stopTracking, reset])
 
 
 

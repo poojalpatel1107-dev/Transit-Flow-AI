@@ -253,6 +253,7 @@
   padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid rgba(239, 68, 68, 0.3);
+  min-width: 80px;
 }
 
 .duration-value {
@@ -260,6 +261,7 @@
   color: #fca5a5;
   font-size: 13px;
   letter-spacing: 0.3px;
+  text-align: center;
 }
 
 .distance-value {
@@ -267,6 +269,7 @@
   color: #cbd5e1;
   font-weight: 700;
   letter-spacing: 0.2px;
+  text-align: center;
 }
 
 .transfer-indicator {
