@@ -100,7 +100,7 @@ body {
 }
 
 .leaflet-control-attribution {
-  background-color: rgba(2, 6, 23, 0.7);
+  display: none !important;
 }
 
 /* Glassmorphism style */

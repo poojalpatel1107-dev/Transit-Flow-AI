@@ -69,10 +69,10 @@ export const STATIONS = [
   { id: 4, name: "Jodhpur Char Rasta", coords: [23.025199, 72.527388] , crowd: "Med"},
   { id: 5, name: "Shivranjani", coords: [23.0243065269089, 72.53129330414228] , crowd: "High"},
   { id: 6, name: "Jhansi Ki Rani", coords: [23.023027, 72.536331] , crowd: "Med"},
-  { id: 7, name: "Nehrunagar", coords: [23.022530, 72.541695] , crowd: "Low"},
+  { id: 7, name: "Nehrunagar", coords: [23.022530, 72.541695] , crowd: "High"},
   { id: 8, name: "Manekbag", coords: [23.018310, 72.544047] , crowd: "Med"}, 
   { id: 9, name: "Dharnidhar Derasar", coords: [23.008213, 72.549283] , crowd: "Low"},
-  { id: 10, name: "Anjali Cross Road", coords: [23.003722, 72.553875] , crowd: "HighL"}
+  { id: 10, name: "Anjali Cross Road", coords: [23.003722, 72.553875] , crowd: "High"}
 ]
 
 // ✈️ ROUTE 15: ISKCON → AIRPORT EXPRESS (Official Janmarg Stops with Validated GeoJSON Geometry)
@@ -83,14 +83,14 @@ export const ROUTE_15_STATIONS = [
   { id: 104, name: "Jodhpur Char Rasta", coords: [23.025199, 72.527388] , crowd: "Med"},
   { id: 105, name: "Himmatlal Park", coords: [23.029735356028695, 72.53239012107093], crowd: "Med" },
   { id: 106, name: "University", coords: [23.0398887065532, 72.53865002912585], crowd: "Low" },
-  { id: 107, name: "Memnagar", coords: [23.045547336007317, 72.54243339214219], crowd: "Med" },
+  { id: 107, name: "Memnagar", coords: [23.045547336007317, 72.54243339214219], crowd: "High" },
   { id: 108, name: "Sola Cross-Road", coords: [23.052736811320898, 72.54681408496907], crowd: "High" },
   { id: 109, name: "Shastrinagar", coords: [23.062205155157585, 72.55297099449686], crowd: "Med" },
   { id: 110, name: "Pragatinagar", coords: [23.06461206268891, 72.55602276456955], crowd: "Low" },
-  { id: 111, name: "Akbarnagar", coords: [23.067657096672463, 72.56575610643137], crowd: "Med" },
-  { id: 112, name: "Ranip Cross-Road", coords: [23.067700028201443, 72.574104939802], crowd: "Low" },
+  { id: 111, name: "Akbarnagar", coords: [23.067657096672463, 72.56575610643137], crowd: "High" },
+  { id: 112, name: "Ranip Cross-Road", coords: [23.067700028201443, 72.574104939802], crowd: "High" },
   { id: 113, name: "RTO Circle", coords: [23.06889090440967, 72.5814969639411], crowd: "High" },
-  { id: 114, name: "Ahmedabad Domestic Airport", coords: [23.07181793109845, 72.622128228002], crowd: "High" }
+  { id: 114, name: "Ahmedabad Domestic Airport", coords: [23.07181793109845, 72.622128228002], crowd: "Low" }
 ];
 
 // Extract coordinates array for Polyline
@@ -230,13 +230,13 @@ export const ROUTE_7_COORDINATES = [
 ];
 
 export const ROUTE_7_STATIONS = [
-  { id: 201, name: "Ranip Cross-Road", coords: [23.067700028201443, 72.574104939802], crowd: "Med" },
-  { id: 202, name: "RTO Circle", coords: [23.06889090440967, 72.5814969639411], crowd: "Low" },
+  { id: 201, name: "Ranip Cross-Road", coords: [23.067700028201443, 72.574104939802], crowd: "High" },
+  { id: 202, name: "RTO Circle", coords: [23.06889090440967, 72.5814969639411], crowd: "High" },
   { id: 203, name: "Sabarmati Power-House", coords: [23.075076, 72.593261], crowd: "Med" },
   { id: 204, name: "Sabarmati Police Station", coords: [23.085568, 72.592037], crowd: "High" },
   { id: 205, name: "Motera Cross-Road", coords: [23.092036, 72.590103], crowd: "Med" },
   { id: 206, name: "Visat-Gandhinagar Junction", coords: [23.097773, 72.588433], crowd: "High" },
-  { id: 207, name: "Vishwakarma Government Engineering College", coords: [23.104849, 72.596150], crowd: "Low" }
+  { id: 207, name: "Vishwakarma Government Engineering College", coords: [23.104849, 72.596150], crowd: "High" }
 ];
 
 // 🎓 ROUTE 4: L.D. ENGINEERING COLLEGE → MEMNAGAR (Updated path through Nehrunagar)
@@ -391,12 +391,12 @@ export const ROUTE_4_COORDINATES = [
 
 export const ROUTE_4_STATIONS = [
   { id: 301, name: "L.D. Engineering College", coords: [23.034954740750763, 72.54887612125816], crowd: "High" },
-  { id: 302, name: "Nehrunagar", coords: [23.022530, 72.541695], crowd: "Med" },
-  { id: 303, name: "Jhansi Ki Rani", coords: [23.023027, 72.536331], crowd: "Med" },
+  { id: 302, name: "Nehrunagar", coords: [23.022530, 72.541695], crowd: "High" },
+  { id: 303, name: "Jhansi Ki Rani", coords: [23.023027, 72.536331], crowd: "High" },
   { id: 304, name: "Shivranjani", coords: [23.0243065269089, 72.53129330414228], crowd: "High" },
   { id: 305, name: "Himmatlal Park", coords: [23.029735356028695, 72.53239012107093], crowd: "Med" },
-  { id: 306, name: "University", coords: [23.0398887065532, 72.53865002912585], crowd: "Low" },
-  { id: 307, name: "Memnagar", coords: [23.045547336007317, 72.54243339214219], crowd: "Med" }
+  { id: 306, name: "University", coords: [23.0398887065532, 72.53865002912585], crowd: "Med" },
+  { id: 307, name: "Memnagar", coords: [23.045547336007317, 72.54243339214219], crowd: "High" }
 ];
 
 // 🧠 AI PREDICTION STUB (To be connected to your Backend/Model)

@@ -7,6 +7,7 @@ import LiveProgressTracker from './components/LiveProgressTracker'
 import NearestBusDetector from './components/NearestBusDetector'
 import AIRecommendations from './components/AIRecommendations'
 import AIChatWindow from './components/AIChatWindow'
+import CalendarView from './components/CalendarView'
 import useJourneyStore from './store/useJourneyStore'
 import { STATIONS, ROUTE_15_STATIONS, ROUTE_7_STATIONS, ROUTE_4_STATIONS } from './RouteCoordinates'
 
@@ -25,6 +26,7 @@ export default function AppEnhanced() {
   const [rightTab, setRightTab] = useState('nearest')
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
   const [currentTime, setCurrentTime] = useState('')
+  const [showCalendar, setShowCalendar] = useState(false)
   const [isBusServiceActive, setIsBusServiceActive] = useState(true)
 
   // Get store state
@@ -141,6 +143,7 @@ export default function AppEnhanced() {
         data.segments = segments
 
         setJourney(data)
+        setRightTab('insights')
 
         // Set transfer stations
         const transfers = []
@@ -239,9 +242,10 @@ export default function AppEnhanced() {
           <h1 className="app-title">🚌 Transit Flow AI</h1>
           <p className="app-subtitle">Smart Transit with Real-time Tracking</p>
         </div>
-        <div className="header-clock" aria-live="polite">
+        <div className="header-clock" aria-live="polite" onClick={() => setShowCalendar(!showCalendar)} style={{ cursor: 'pointer', position: 'relative' }}>
           <span className="clock-dot" aria-hidden="true"></span>
           <span className="clock-time">{currentTime}</span>
+          {showCalendar && <CalendarView />}
         </div>
       </div>
 
@@ -284,7 +288,9 @@ export default function AppEnhanced() {
               aria-label={isRightPanelOpen ? 'Collapse panel' : 'Expand panel'}
               data-open={isRightPanelOpen}
               onClick={() => setIsRightPanelOpen((prev) => !prev)}
-            />
+            >
+              {isRightPanelOpen ? 'Close Panel' : 'Open Panel'}
+            </button>
             <div className="right-tabs">
               <button
                 className={`right-tab ${rightTab === 'insights' ? 'active' : ''}`}

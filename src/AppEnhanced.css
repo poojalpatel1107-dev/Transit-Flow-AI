@@ -35,7 +35,7 @@
   justify-content: space-between;
   gap: 16px;
   position: relative;
-  z-index: 2;
+  z-index: 20;
 }
 
 .logo-section {
@@ -68,6 +68,8 @@
   font-weight: 700;
   letter-spacing: 0.5px;
   box-shadow: 0 10px 24px rgba(239, 68, 68, 0.2);
+  position: relative;
+  z-index: 21;
 }
 
 .clock-dot {
@@ -105,7 +107,7 @@
   max-width: 1500px;
   width: 100%;
   margin: 0 auto;
-  padding: 16px 18px;
+  padding: 16px 0 0 18px;
   gap: 14px;
   position: relative;
   z-index: 2;
@@ -116,10 +118,11 @@
   flex-shrink: 0;
   width: 100%;
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
   margin-bottom: 2px;
   pointer-events: auto;
+  padding-right: 18px;
 }
 
 .search-stack {
@@ -222,15 +225,17 @@
   overflow: hidden;
   padding: 0;
   min-height: 0;
-  max-height: 55vh;
+  max-height: 100%;
   background: linear-gradient(160deg, rgba(10, 16, 28, 0.96) 0%, rgba(8, 12, 22, 0.94) 60%, rgba(7, 10, 20, 0.92) 100%);
-  border-radius: 22px;
+  border-radius: 22px 0 0 0;
   border: 1px solid rgba(105, 150, 200, 0.22);
+  border-bottom: none;
+  border-right: 1px solid rgba(105, 150, 200, 0.22);
   box-shadow: 0 18px 42px rgba(2, 6, 23, 0.45), inset 0 1px 0 rgba(120, 170, 220, 0.08);
   pointer-events: auto;
   backdrop-filter: blur(13px);
   transform: translateY(0);
-  height: 55vh;
+  height: 100%;
   transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
   position: relative;
   padding-top: 6px;
@@ -248,15 +253,17 @@
 
 .content-wrapper.overlay-mode .right-panel {
   width: min(540px, 48%);
-  height: 55vh;
+  height: 100%;
+  margin-right: 0;
 }
 
 .content-wrapper:not(.tracking-mode) .right-panel {
   position: relative;
   z-index: 2;
   width: min(540px, 48%);
-  height: 55vh;
+  height: 100%;
   margin-left: auto;
+  margin-right: 0;
 }
 
 .right-panel::-webkit-scrollbar {
@@ -282,12 +289,13 @@
   padding: 6px;
   border-radius: 14px;
   border: 1px solid rgba(120, 165, 210, 0.25);
+  border-right: 1px solid rgba(120, 165, 210, 0.25);
   align-items: center;
   position: static;
-  margin: 36px 14px 12px;
+  margin: 52px 14px 12px 14px;
   width: auto;
   height: 48px;
-  z-index: 3;
+  z-index: 2;
   backdrop-filter: none;
   box-shadow: 0 10px 24px rgba(2, 6, 23, 0.3), inset 0 1px 0 rgba(120, 170, 220, 0.06);
   min-width: 0;
@@ -297,8 +305,10 @@
   position: absolute;
   top: 12px;
   left: 50%;
-  width: 46px;
-  height: 26px;
+  width: auto;
+  min-width: 100px;
+  height: 32px;
+  padding: 0 16px;
   border-radius: 999px;
   border: 1px solid rgba(120, 156, 198, 0.4);
   background: linear-gradient(180deg, rgba(20, 30, 48, 0.98), rgba(11, 16, 28, 0.92));
@@ -310,22 +320,17 @@
   z-index: 3;
   transform: translateX(-50%);
   box-shadow: 0 8px 18px rgba(2, 6, 23, 0.35), inset 0 1px 0 rgba(120, 170, 220, 0.08);
-}
-
-.panel-toggle::before {
-  content: '';
-  display: block;
-  width: 9px;
-  height: 9px;
-  border-right: 2px solid #d2eaff;
-  border-bottom: 2px solid #d2eaff;
-  transform: rotate(45deg);
-  transition: transform 0.3s ease-in-out;
+  color: #d2eaff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: capitalize;
 }
 
 .panel-toggle:hover {
   background: linear-gradient(180deg, rgba(26, 38, 60, 0.98), rgba(18, 28, 46, 0.92));
   border-color: rgba(150, 190, 230, 0.65);
+  color: #ffffff;
 }
 
 .right-tab {
@@ -372,15 +377,16 @@
   display: flex;
   flex-direction: column;
   opacity: 1;
-  padding: 10px 12px 14px;
+  padding: 10px 12px 0 12px;
   height: 100%;
   transition: opacity 0.3s ease-in-out;
   position: relative;
   z-index: 2;
   background: linear-gradient(180deg, rgba(8, 12, 22, 0.55), rgba(8, 12, 22, 0.35));
-  border-radius: 16px;
-  margin: 0 12px 12px;
+  border-radius: 16px 16px 0 0;
+  margin: 0 12px 0 12px;
   border: 1px solid rgba(90, 130, 175, 0.15);
+  border-right: 1px solid rgba(90, 130, 175, 0.15);
 }
 
 .right-panel.collapsed .right-panel-content {
@@ -393,9 +399,7 @@
   box-shadow: 0 10px 25px rgba(2, 6, 23, 0.35);
 }
 
-.right-panel.collapsed .panel-toggle::before {
-  transform: rotate(-135deg);
-}
+
 
 .right-panel-content > * {
   flex: 0 0 auto;
@@ -455,7 +459,8 @@
 .tracking-panel {
   min-height: 0;
   border-radius: 16px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: rgba(2, 6, 23, 0.6);
   backdrop-filter: blur(14px);
   border: 1px solid var(--border);
@@ -487,7 +492,7 @@
 
 @media (max-width: 1024px) {
   .app-container {
-    padding: 12px;
+    padding: 12px 0 0 12px;
     gap: 12px;
   }
 
@@ -517,7 +522,7 @@
     height: 46px;
     padding: 6px;
     gap: 6px;
-    margin: 34px 12px 10px;
+    margin: 34px 0 10px 12px;
   }
 
   .right-tab {
@@ -543,7 +548,7 @@
 
   .app-container {
     max-width: 100%;
-    padding: 10px;
+    padding: 10px 0 0 10px;
     gap: 10px;
   }
 
@@ -555,7 +560,7 @@
     height: 44px;
     padding: 5px;
     gap: 5px;
-    margin: 32px 10px 10px;
+    margin: 32px 10px 10px 10px;
   }
 
   .right-tab {
@@ -565,7 +570,7 @@
   }
 
   .right-panel-content {
-    margin: 0 10px 10px;
+    margin: 0 10px 0 10px;
   }
   .left-panel {
     min-height: 350px;

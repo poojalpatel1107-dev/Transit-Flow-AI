@@ -194,7 +194,7 @@ export default function MapWithRouteHighlight() {
       setMapZoom(14)
       setRoutePath(trimmedPath)
       setAutoFit(true)
-      setAutoFollow(true)
+      setAutoFollow(false)
     }
   }, [journey])
 
@@ -209,7 +209,7 @@ export default function MapWithRouteHighlight() {
     useEffect(() => {
       if (autoFit && routePath && routePath.length > 1) {
         const bounds = L.latLngBounds(routePath)
-        map.fitBounds(bounds, { padding: [30, 30] })
+        map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 })
       }
     }, [routePath, map, autoFit])
 
@@ -242,6 +242,14 @@ export default function MapWithRouteHighlight() {
       <MapContainer
         center={mapCenter}
         zoom={mapZoom}
+        scrollWheelZoom={true}
+        dragging={true}
+        doubleClickZoom={true}
+        touchZoom={true}
+        keyboard={true}
+        zoomControl={true}
+        minZoom={10}
+        maxZoom={19}
         style={{ width: '100%', height: '100%' }}
       >
         <MapViewUpdater />
